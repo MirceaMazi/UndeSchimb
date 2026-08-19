@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { getComparison, getHistory } from './api'
-import type { Comparison, History, Offer } from './types'
+import type { Comparison, History, Offer, ProviderCategory, ProviderNotice, ProviderTab } from './types'
 
 const CURRENCIES = [
   { code: 'EUR', label: 'Euro', symbol: '€' },
@@ -14,14 +14,30 @@ const PROVIDER_NAMES: Record<string, string> = {
   bcr: 'BCR',
   brd: 'BRD',
   ing: 'ING',
+  ing_preferential: 'ING — curs avantajos',
   raiffeisen: 'Raiffeisen',
+  raiffeisen_smart_hour: 'Raiffeisen Smart Hour',
   cec: 'CEC Bank',
   xtb: 'XTB',
+  tradeville: 'TradeVille',
+  revolut: 'Revolut',
+  tavex: 'Tavex',
+  luxor_bucharest: 'Luxor București',
 }
+
+const CATEGORY_TABS: { id: ProviderTab; label: string; shortLabel: string }[] = [
+  { id: 'all', label: 'Toate ofertele', shortLabel: 'Toate' },
+  { id: 'banks', label: 'Bănci', shortLabel: 'Bănci' },
+  { id: 'brokers', label: 'Brokeri & fintech', shortLabel: 'Brokeri' },
+  { id: 'physical_exchanges', label: 'Case de schimb', shortLabel: 'Schimb valutar' },
+]
+
+const HISTORY_FALLBACK = ['banca_transilvania', 'bcr', 'brd', 'ing', 'ing_preferential', 'raiffeisen', 'cec', 'xtb', 'revolut', 'tavex', 'luxor_bucharest']
 
 type Theme = 'light' | 'dark'
 
 function initialTheme(): Theme {
+  if (typeof window === 'undefined') return 'light'
   try {
     const savedTheme = window.localStorage.getItem('undeschimb-theme')
     if (savedTheme === 'light' || savedTheme === 'dark') return savedTheme
@@ -30,6 +46,48 @@ function initialTheme(): Theme {
   }
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
+
+function initialCurrency() {
+  if (typeof window === 'undefined') return 'EUR'
+  const currency = new URLSearchParams(window.location.search).get('currency')
+  if (currency && CURRENCIES.some((item) => item.code === currency)) return currency
+  return 'EUR'
+}
+
+function initialDirection(): 'ron-to-fx' | 'fx-to-ron' {
+  if (typeof window === 'undefined') return 'ron-to-fx'
+  return new URLSearchParams(window.location.search).get('direction') === 'fx-to-ron' ? 'fx-to-ron' : 'ron-to-fx'
+}
+
+const CURRENCY_GUIDES = [
+  { code: 'EUR', label: 'Curs EUR / RON', href: '/curs-eur-ron/' },
+  { code: 'USD', label: 'Curs USD / RON', href: '/curs-usd-ron/' },
+  { code: 'GBP', label: 'Curs GBP / RON', href: '/curs-gbp-ron/' },
+  { code: 'CHF', label: 'Curs CHF / RON', href: '/curs-chf-ron/' },
+]
+
+const FAQ_ITEMS = [
+  {
+    question: 'Cursul BNR poate fi folosit pentru a face schimbul valutar?',
+    answer: 'Nu. Cursul BNR este un reper informativ, nu o ofertă de schimb pentru persoane fizice. Banca sau furnizorul ales stabilește cursul efectiv aplicat.',
+  },
+  {
+    question: 'Ce cursuri sunt incluse în comparație?',
+    answer: 'Clasamentul băncilor folosește cursurile standard pentru conturi personale. Cursurile preferențiale și promoțiile apar separat, cu condițiile lor, iar brokerii și casele de schimb au file dedicate.',
+  },
+  {
+    question: 'De ce ING și Smart Hour nu apar mereu în clasamentul băncilor?',
+    answer: 'Sunt avantaje condiționate de pachet, limite, monedă sau interval orar. Le arătăm separat și includem un rezultat numeric doar când există un curs public și putem verifica regulile relevante pentru simulare.',
+  },
+  {
+    question: 'De ce oferta XTB este marcată ca indicativă?',
+    answer: 'XTB folosește cotații Standard care se pot modifica mai repede decât verificarea noastră. Calculul include comisionul de conversie publicat, însă prețul executabil din platformă poate diferi.',
+  },
+  {
+    question: 'Cât de des sunt actualizate datele?',
+    answer: 'Colectorul verifică sursele la fiecare 15 minute cât timp serviciul este activ. Verifică mereu marcajul de timp și avertizarea de date expirate înainte de a lua o decizie.',
+  },
+]
 
 function number(value: string | number, minimumFractionDigits = 2, maximumFractionDigits = 4) {
   return new Intl.NumberFormat('ro-RO', { minimumFractionDigits, maximumFractionDigits }).format(Number(value))
@@ -51,14 +109,15 @@ function relativeTime(value: string) {
 function App() {
   const [theme, setTheme] = useState<Theme>(initialTheme)
   const [amount, setAmount] = useState('1000')
-  const [currency, setCurrency] = useState('EUR')
-  const [direction, setDirection] = useState<'ron-to-fx' | 'fx-to-ron'>('ron-to-fx')
+  const [currency, setCurrency] = useState(initialCurrency)
+  const [direction, setDirection] = useState<'ron-to-fx' | 'fx-to-ron'>(initialDirection)
   const [comparison, setComparison] = useState<Comparison | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [historyProvider, setHistoryProvider] = useState('bcr')
   const [historyPeriod, setHistoryPeriod] = useState(30)
   const [history, setHistory] = useState<History | null>(null)
+  const [activeCategory, setActiveCategory] = useState<ProviderTab>('all')
 
   const from = direction === 'ron-to-fx' ? 'RON' : currency
   const to = direction === 'ron-to-fx' ? currency : 'RON'
@@ -92,7 +151,8 @@ function App() {
           if (!controller.signal.aborted) {
             setComparison(response)
             setError(null)
-            setHistoryProvider((current) => response.offers.some((offer) => offer.provider === current) ? current : response.offers[0]?.provider ?? current)
+            const historyOffers = response.offers.filter((offer) => offer.offer_type !== 'special')
+            setHistoryProvider((current) => historyOffers.some((offer) => offer.provider === current) ? current : historyOffers[0]?.provider ?? current)
           }
         })
         .catch((reason: Error) => !controller.signal.aborted && setError(reason.message))
@@ -110,7 +170,20 @@ function App() {
       .catch(() => setHistory(null))
   }, [currency, historyProvider, historyPeriod, historySide])
 
-  const providers = useMemo(() => comparison?.offers.map((offer) => offer.provider) ?? [], [comparison])
+  const providers = useMemo(() => {
+    const available = comparison?.offers
+      .filter((offer) => offer.offer_type !== 'special')
+      .map((offer) => offer.provider) ?? []
+    return [...new Set(available)]
+  }, [comparison])
+  const rankedOffers = comparison?.offers.filter((offer) =>
+    (activeCategory === 'all' || offer.category === activeCategory) && offer.offer_type !== 'preferential' && offer.offer_type !== 'special',
+  ) ?? []
+  const benefitOffers = comparison?.offers.filter((offer) =>
+    (activeCategory === 'all' || offer.category === activeCategory) && (offer.offer_type === 'preferential' || offer.offer_type === 'special'),
+  ) ?? []
+  const categoryNotices = comparison?.provider_notices?.filter((notice) => activeCategory === 'all' || notice.category === activeCategory) ?? []
+  const informationNotices = categoryNotices.filter((notice) => notice.kind === 'quote_required' || notice.kind === 'ineligible')
 
   return (
     <main>
@@ -124,13 +197,12 @@ function App() {
           <button
             type="button"
             className="theme-toggle"
-            aria-pressed={theme === 'dark'}
-            aria-label={theme === 'dark' ? 'Activează modul luminos' : 'Activează modul întunecat'}
-            title={theme === 'dark' ? 'Mod luminos' : 'Mod întunecat'}
+            aria-label="Schimbă tema"
+            title="Schimbă tema"
             onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
           >
-            <span aria-hidden="true">{theme === 'dark' ? '☀' : '☾'}</span>
-            <span className="theme-toggle-label">{theme === 'dark' ? 'Luminos' : 'Întunecat'}</span>
+            <span aria-hidden="true">◐</span>
+            <span className="theme-toggle-label">Temă</span>
           </button>
         </div>
       </nav>
@@ -139,7 +211,7 @@ function App() {
         <div className="hero-copy">
           <p className="eyebrow">Cursuri reale. Decizii mai bune.</p>
           <h1>Unde îți rămân mai mulți bani după schimb?</h1>
-          <p className="lede">Compară cursurile pentru conturi personale de la băncile mari și vezi instant diferența față de reperul BNR.</p>
+          <p className="lede">Compară cursurile băncilor, brokerilor și caselor de schimb și vezi instant diferența față de reperul BNR.</p>
           <div className="trust-line"><span>●</span> Actualizat automat la 15 minute <i /> <span>●</span> Fără cont, fără comisioane</div>
         </div>
         <div className="rate-card" aria-label="Reper BNR">
@@ -151,13 +223,13 @@ function App() {
         </div>
       </section>
 
-      <section className="calculator-shell shell" aria-labelledby="calculator-title">
+      <section className="calculator-shell shell" id="calculator" aria-labelledby="calculator-title">
         <div className="calculator-heading">
           <div>
             <p className="eyebrow">CALCULATOR</p>
             <h2 id="calculator-title">Simulează schimbul tău</h2>
           </div>
-          <p>Ratele sunt pentru schimburi standard între conturi personale.</p>
+          <p>Alege categoria potrivită după ce introduci suma și moneda.</p>
         </div>
         <div className="calculator">
           <label className="amount-field">
@@ -192,8 +264,49 @@ function App() {
 
         {error && <div className="message error"><b>Nu am putut calcula comparația.</b> {error}</div>}
         {loading && !comparison && <div className="message">Se încarcă sursele disponibile…</div>}
-        {comparison && <OffersTable offers={comparison.offers} outputCurrency={comparison.to} />}
-        {comparison?.missing_sources?.length ? <p className="source-note">Nu sunt disponibile momentan: {comparison.missing_sources.map((id) => PROVIDER_NAMES[id] ?? id).join(', ')}. Nu afișăm estimări pentru bănci.</p> : null}
+        {comparison && <>
+          <ProviderTabs activeCategory={activeCategory} onChange={setActiveCategory} />
+          <div className="ranking-heading">
+            <div>
+              <h3>{activeCategory === 'all' ? 'Clasament general' : activeCategory === 'banks' ? 'Clasament cursuri standard' : activeCategory === 'brokers' ? 'Cotații comparabile' : 'Cursuri pentru numerar'}</h3>
+              <p>{activeCategory === 'all'
+                ? 'Toți furnizorii sunt reuniți aici; tipul ofertei și condițiile de utilizare rămân marcate clar.'
+                : activeCategory === 'banks'
+                ? 'Avantajele condiționate sunt explicate separat și nu schimbă clasamentul standard.'
+                : activeCategory === 'brokers'
+                  ? 'Sunt ordonate doar ofertele pentru care există o cotație publică.'
+                  : 'Sunt clasate numai cursurile pentru care suma ta îndeplinește pragurile publicate.'}</p>
+            </div>
+          </div>
+          <OffersTable offers={rankedOffers} informationNotices={informationNotices} outputCurrency={comparison.to} showCategories={activeCategory === 'all'} />
+          {categoryNotices.length > 0 && <ProviderBenefits notices={categoryNotices} offers={benefitOffers} outputCurrency={comparison.to} />}
+        </>}
+        {comparison?.missing_sources?.length ? <p className="source-note">Nu sunt disponibile momentan: {comparison.missing_sources.map((id) => PROVIDER_NAMES[id] ?? id).join(', ')}. Păstrăm doar ultimul curs valid, marcat ca expirat; nu inventăm estimări.</p> : null}
+      </section>
+
+      <section className="seo-intro shell" aria-labelledby="seo-title">
+        <p className="eyebrow">GHID DE SCHIMB VALUTAR</p>
+        <h2 id="seo-title">Curs valutar: cum alegi oferta potrivită?</h2>
+        <div className="seo-copy">
+          <p>La un schimb valutar contează suma pe care o primești, nu doar cifra afișată ca „curs”. Pentru RON spre valută, un curs de vânzare mai mic înseamnă mai multă valută primită. Pentru valută spre RON, un curs de cumpărare mai mare înseamnă mai mulți lei primiți.</p>
+          <p>UndeSchimb separă cursurile standard de avantajele condiționate și grupează băncile, brokerii și casele de schimb. Astfel compari oferte similare și vezi exact ce condiții trebuie îndeplinite.</p>
+        </div>
+        <div className="currency-guides" aria-label="Ghiduri pentru monede">
+          {CURRENCY_GUIDES.map((guide) => <a key={guide.code} href={guide.href}><span>{guide.code}</span>{guide.label}<b aria-hidden="true">→</b></a>)}
+        </div>
+      </section>
+
+      <section className="methodology shell" id="metodologie" aria-labelledby="methodology-title">
+        <div>
+          <p className="eyebrow">METODOLOGIE</p>
+          <h2 id="methodology-title">Cum calculăm comparația</h2>
+        </div>
+        <ol>
+          <li><span>01</span><p><b>Normalizăm cursurile</b><small>Toate valorile sunt exprimate ca RON pentru o unitate de monedă străină.</small></p></li>
+          <li><span>02</span><p><b>Aplicăm direcția corectă</b><small>Împărțim la cursul de vânzare când cumperi valută și înmulțim cu cursul de cumpărare când vinzi valută.</small></p></li>
+          <li><span>03</span><p><b>Arătăm diferența reală</b><small>Comparăm rezultatul fiecărei oferte cu echivalentul BNR și afișăm diferența în lei.</small></p></li>
+        </ol>
+        <a className="text-link" href="/metodologie/">Citește metodologia completă <span aria-hidden="true">→</span></a>
       </section>
 
       <section className="how-it-works">
@@ -206,7 +319,7 @@ function App() {
           <div className="rules">
             <p><span>01</span><b>BNR este un reper</b><small>Cursul BNR nu este o ofertă de schimb pentru persoane fizice.</small></p>
             <p><span>02</span><b>XTB este indicativ</b><small>Folosește cotații Standard publice și taxa de conversie activă.</small></p>
-            <p><span>03</span><b>Verifică mereu înainte</b><small>Promotiile, limitele și ratele negociate nu sunt incluse.</small></p>
+            <p><span>03</span><b>Beneficiile au condiții</b><small>Promoțiile, pachetele și intervalele orare sunt explicate separat de cursul standard.</small></p>
           </div>
         </div>
       </section>
@@ -219,12 +332,23 @@ function App() {
           </div>
           <div className="history-controls">
             <select value={historyProvider} onChange={(event) => setHistoryProvider(event.target.value)}>
-              {(providers.length ? providers : Object.keys(PROVIDER_NAMES)).map((provider) => <option value={provider} key={provider}>{PROVIDER_NAMES[provider]}</option>)}
+              {(providers.length ? providers : HISTORY_FALLBACK).map((provider) => <option value={provider} key={provider}>{PROVIDER_NAMES[provider]}</option>)}
             </select>
             {[7, 30, 90].map((days) => <button aria-pressed={historyPeriod === days} className={historyPeriod === days ? 'selected' : ''} type="button" key={days} onClick={() => setHistoryPeriod(days)}>{days}z</button>)}
           </div>
         </div>
         <HistoryChart history={history} providerName={PROVIDER_NAMES[historyProvider]} />
+      </section>
+
+      <section className="faq shell" id="intrebari" aria-labelledby="faq-title">
+        <p className="eyebrow">ÎNTREBĂRI FRECVENTE</p>
+        <h2 id="faq-title">Lucruri utile înainte de schimb</h2>
+        <div className="faq-list">
+          {FAQ_ITEMS.map((item, index) => <details key={item.question} open={index === 0}>
+            <summary>{item.question}<span aria-hidden="true">+</span></summary>
+            <p>{item.answer}</p>
+          </details>)}
+        </div>
       </section>
 
       <footer className="footer shell">
@@ -235,44 +359,185 @@ function App() {
   )
 }
 
-function OffersTable({ offers, outputCurrency }: { offers: Offer[]; outputCurrency: string }) {
-  if (!offers.length) return <div className="message">Niciun curs nu este disponibil încă. Verificăm sursele la fiecare 15 minute.</div>
+function ProviderTabs({
+  activeCategory,
+  onChange,
+}: {
+  activeCategory: ProviderTab
+  onChange: (category: ProviderTab) => void
+}) {
+  return <div className="provider-tabs" role="tablist" aria-label="Tipul furnizorului">
+    {CATEGORY_TABS.map((tab) => <button
+        type="button"
+        role="tab"
+        id={`tab-${tab.id}`}
+        aria-selected={activeCategory === tab.id}
+        aria-controls="provider-results"
+        className={activeCategory === tab.id ? 'active' : ''}
+        key={tab.id}
+        onClick={() => onChange(tab.id)}
+      >
+        <span className="tab-label-full">{tab.label}</span>
+        <span className="tab-label-short">{tab.shortLabel}</span>
+      </button>
+    )}
+  </div>
+}
+
+function ProviderBenefits({
+  notices,
+  offers,
+  outputCurrency,
+}: {
+  notices: ProviderNotice[]
+  offers: Offer[]
+  outputCurrency: string
+}) {
+  return <section className="provider-benefits" aria-labelledby="benefits-title">
+    <div className="benefits-heading">
+      <div>
+        <p className="eyebrow">AVANTAJE ȘI CONDIȚII</p>
+        <h3 id="benefits-title">Merită să știi că există</h3>
+      </div>
+      <p>Aici explicăm pragurile, programul și condițiile care pot modifica oferta din clasament.</p>
+    </div>
+    <div className="benefit-grid">
+      {notices.map((notice) => {
+        const offer = offers.find((item) => item.provider === notice.provider)
+        const status = notice.kind === 'scheduled'
+          ? notice.active_now
+            ? notice.request_eligible ? 'Activ acum' : 'Suma depășește limita'
+            : 'Interval limitat'
+          : notice.kind === 'quote_required'
+            ? 'Verifică în platformă'
+            : notice.kind === 'ineligible'
+              ? 'Prag neîndeplinit'
+              : notice.category === 'physical_exchanges'
+                ? 'Curs aplicabil'
+                : notice.provider === 'revolut' ? 'Verifică planul' : 'Doar pentru clienți eligibili'
+        const statusClass = notice.active_now && notice.request_eligible ? 'active' : notice.request_eligible ? 'conditional' : 'unavailable'
+        const difference = offer ? Number(offer.difference_from_bnr_ron) : 0
+
+        return <article className="benefit-card" key={notice.provider}>
+          <div className="benefit-card-top">
+            <div><small>{notice.provider_name}</small><h4>{notice.title}</h4></div>
+            <span className={`benefit-status ${statusClass}`}>{status}</span>
+          </div>
+          <p>{notice.description}</p>
+          {offer && <div className="benefit-result">
+            <span>Estimare pentru suma ta</span>
+            <strong>{money(offer.output_amount, outputCurrency)}</strong>
+            <small className={difference < 0 ? 'negative' : 'positive'}>
+              {difference > 0 ? '+' : ''}{money(offer.difference_from_bnr_ron, 'RON')} față de BNR
+            </small>
+          </div>}
+          <ul>{(notice.conditions ?? []).map((condition) => <li key={condition}>{condition}</li>)}</ul>
+          <a href={notice.source_url} target="_blank" rel="noreferrer">Vezi condițiile oficiale <span aria-hidden="true">↗</span></a>
+        </article>
+      })}
+    </div>
+  </section>
+}
+
+function OffersTable({
+  offers,
+  informationNotices,
+  outputCurrency,
+  showCategories,
+}: {
+  offers: Offer[]
+  informationNotices: ProviderNotice[]
+  outputCurrency: string
+  showCategories: boolean
+}) {
+  if (!offers.length && !informationNotices.length) return <div className="message">Niciun curs nu este disponibil încă. Verificăm sursele la fiecare 15 minute.</div>
   return (
-    <>
+    <div id="provider-results" role="tabpanel">
       <div className="table-wrap">
         <table>
           <thead><tr><th>Furnizor</th><th>Curs efectiv</th><th>Primești</th><th>Diferență față de BNR</th><th>Stare</th></tr></thead>
           <tbody>
             {offers.map((offer, index) => {
               const difference = Number(offer.difference_from_bnr_ron)
-              return <tr key={offer.provider} className={index === 0 ? 'best' : ''}>
-                <td><div className="provider"><b>{offer.provider_name}</b>{index === 0 && <span>Cea mai bună ofertă</span>}{offer.indicative && <small>Estimare indicativă</small>}</div></td>
+              const isBest = offers.length > 1 && index === 0
+              return <tr key={offer.provider} className={isBest ? 'best' : ''}>
+                <td><div className="provider"><b>{offer.provider_name}</b>{showCategories && <ProviderCategoryLabel category={offer.category} />}{isBest && <span className="best-label">Cea mai bună ofertă disponibilă</span>}<OfferTypeLabel offer={offer} /><LocationLabel offer={offer} /></div></td>
                 <td>{number(offer.effective_rate, 4, 4)} <small>RON</small></td>
                 <td className="received">{money(offer.output_amount, outputCurrency)}</td>
                 <td className={difference < 0 ? 'negative' : 'positive'}>{difference > 0 ? '+' : ''}{money(offer.difference_from_bnr_ron, 'RON')}<small>{number(offer.difference_percent, 2, 2)}%</small></td>
                 <td><a href={offer.source_url} target="_blank" rel="noreferrer" className={offer.stale ? 'stale' : 'fresh'}>{offer.stale ? 'Expirat' : 'Actualizat'}<small>{relativeTime(offer.fetched_at)}</small></a>{offer.provider === 'xtb' && <small className="fee">taxă {number(offer.fee_percent, 1, 1)}%</small>}</td>
               </tr>
             })}
+            {informationNotices.map((notice) => <InformationRow key={notice.provider} notice={notice} showCategory={showCategories} />)}
           </tbody>
         </table>
       </div>
       <div className="offers-mobile">
-        {offers.map((offer, index) => <OfferCard key={offer.provider} offer={offer} index={index} outputCurrency={outputCurrency} />)}
+        {offers.map((offer, index) => <OfferCard key={offer.provider} offer={offer} isBest={offers.length > 1 && index === 0} outputCurrency={outputCurrency} showCategory={showCategories} />)}
+        {informationNotices.map((notice) => <InformationCard key={notice.provider} notice={notice} showCategory={showCategories} />)}
       </div>
-    </>
+    </div>
   )
 }
 
-function OfferCard({ offer, index, outputCurrency }: { offer: Offer; index: number; outputCurrency: string }) {
+function ProviderCategoryLabel({ category }: { category: ProviderCategory }) {
+  const labels: Record<ProviderCategory, string> = {
+    banks: 'Bancă',
+    brokers: 'Broker / fintech',
+    physical_exchanges: 'Casă de schimb',
+  }
+  return <small className={`category-badge category-${category}`}>{labels[category]}</small>
+}
+
+function LocationLabel({ offer }: { offer: Offer }) {
+  if (!offer.location_label) return null
+  return <small className={`location-label location-${offer.location_policy}`}>
+    <b>{offer.location_label}</b>
+    <span>{offer.location_note}</span>
+  </small>
+}
+
+function InformationRow({ notice, showCategory }: { notice: ProviderNotice; showCategory: boolean }) {
+  const ineligible = notice.kind === 'ineligible'
+  return <tr className={`information-row ${ineligible ? 'ineligible-row' : ''}`}>
+    <td><div className="provider"><b>{notice.provider_name}</b>{showCategory && <ProviderCategoryLabel category={notice.category} />}<small>{ineligible ? 'Prag neîndeplinit' : 'Cotație în aplicație'}</small></div></td>
+    <td className="unavailable-value">—</td>
+    <td className="unavailable-value">{ineligible ? 'Suma este prea mică' : 'Verifică în platformă'}</td>
+    <td className="unavailable-value">—</td>
+    <td><a href={notice.source_url} target="_blank" rel="noreferrer" className="verify-link">Sursă oficială<small>{ineligible ? 'vezi pragul' : 'curs dinamic'}</small></a></td>
+  </tr>
+}
+
+function InformationCard({ notice, showCategory }: { notice: ProviderNotice; showCategory: boolean }) {
+  const ineligible = notice.kind === 'ineligible'
+  return <article className={`offer-card information-card ${ineligible ? 'ineligible-card' : ''}`}>
+    <div className="offer-card-top">
+      <div className="provider"><b>{notice.provider_name}</b>{showCategory && <ProviderCategoryLabel category={notice.category} />}<small>{ineligible ? 'Prag neîndeplinit' : 'Cotație în aplicație'}</small></div>
+      <a href={notice.source_url} target="_blank" rel="noreferrer" className="offer-status verify-link">Sursă oficială<small>{ineligible ? 'vezi pragul' : 'curs dinamic'}</small></a>
+    </div>
+    <p>{notice.description}</p>
+    <strong>{ineligible ? 'Oferta nu este inclusă în clasament' : 'Verifică suma exactă în platformă'}</strong>
+  </article>
+}
+
+function OfferTypeLabel({ offer }: { offer: Offer }) {
+  if (offer.offer_type === 'cash') return <small>Schimb cu numerar</small>
+  if (offer.indicative) return <small>Estimare indicativă</small>
+  return null
+}
+
+function OfferCard({ offer, isBest, outputCurrency, showCategory }: { offer: Offer; isBest: boolean; outputCurrency: string; showCategory: boolean }) {
   const difference = Number(offer.difference_from_bnr_ron)
   const differenceClass = difference < 0 ? 'negative' : 'positive'
 
-  return <article className={`offer-card ${index === 0 ? 'best' : ''}`}>
+  return <article className={`offer-card ${isBest ? 'best' : ''}`}>
     <div className="offer-card-top">
       <div className="provider">
         <b>{offer.provider_name}</b>
-        {index === 0 && <span>Cea mai bună ofertă</span>}
-        {offer.indicative && <small>Estimare indicativă</small>}
+        {showCategory && <ProviderCategoryLabel category={offer.category} />}
+        {isBest && <span className="best-label">Cea mai bună ofertă disponibilă</span>}
+        <OfferTypeLabel offer={offer} />
+        <LocationLabel offer={offer} />
       </div>
       <a href={offer.source_url} target="_blank" rel="noreferrer" className={`offer-status ${offer.stale ? 'stale' : 'fresh'}`}>
         {offer.stale ? 'Expirat' : 'Actualizat'}
@@ -294,6 +559,7 @@ function OfferCard({ offer, index, outputCurrency }: { offer: Offer; index: numb
       <span>Curs efectiv <b>{number(offer.effective_rate, 4, 4)} RON</b></span>
       {offer.provider === 'xtb' && <span className="fee">taxă {number(offer.fee_percent, 1, 1)}%</span>}
     </div>
+    {(offer.conditions?.length ?? 0) > 0 && <ul className="offer-conditions">{offer.conditions.map((condition) => <li key={condition}>{condition}</li>)}</ul>}
   </article>
 }
 

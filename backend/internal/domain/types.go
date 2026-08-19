@@ -13,25 +13,53 @@ var SupportedCurrencies = map[string]struct{}{
 }
 
 var ProviderNames = map[string]string{
-	"bnr":         "BNR",
-	"banca_transilvania": "Banca Transilvania",
-	"bcr":         "BCR",
-	"brd":         "BRD",
-	"ing":         "ING",
-	"raiffeisen":  "Raiffeisen",
-	"cec":         "CEC Bank",
-	"xtb":         "XTB",
+	"bnr":                   "BNR",
+	"banca_transilvania":    "Banca Transilvania",
+	"bcr":                   "BCR",
+	"brd":                   "BRD",
+	"ing":                   "ING",
+	"ing_preferential":      "ING curs avantajos",
+	"raiffeisen":            "Raiffeisen",
+	"raiffeisen_smart_hour": "Raiffeisen Smart Hour",
+	"cec":                   "CEC Bank",
+	"xtb":                   "XTB",
+	"tradeville":            "TradeVille",
+	"revolut":               "Revolut",
+	"tavex":                 "Tavex",
+	"luxor_bucharest":       "Luxor București",
+}
+
+const (
+	CategoryBanks             = "banks"
+	CategoryBrokers           = "brokers"
+	CategoryPhysicalExchanges = "physical_exchanges"
+)
+
+var ProviderCategories = map[string]string{
+	"banca_transilvania":    CategoryBanks,
+	"bcr":                   CategoryBanks,
+	"brd":                   CategoryBanks,
+	"ing":                   CategoryBanks,
+	"ing_preferential":      CategoryBanks,
+	"raiffeisen":            CategoryBanks,
+	"raiffeisen_smart_hour": CategoryBanks,
+	"cec":                   CategoryBanks,
+	"xtb":                   CategoryBrokers,
+	"tradeville":            CategoryBrokers,
+	"revolut":               CategoryBrokers,
+	"tavex":                 CategoryPhysicalExchanges,
+	"luxor_bucharest":       CategoryPhysicalExchanges,
 }
 
 type RateSnapshot struct {
-	Provider     string          `json:"provider"`
-	Currency     string          `json:"currency"`
-	BuyRate      decimal.Decimal `json:"buy_rate"`
-	SellRate     decimal.Decimal `json:"sell_rate"`
-	FeePercent   decimal.Decimal `json:"fee_percent"`
-	SourceURL    string          `json:"source_url"`
-	EffectiveAt  time.Time       `json:"effective_at"`
-	FetchedAt    time.Time       `json:"fetched_at"`
+	Provider    string          `json:"provider"`
+	Currency    string          `json:"currency"`
+	BuyRate     decimal.Decimal `json:"buy_rate"`
+	SellRate    decimal.Decimal `json:"sell_rate"`
+	FeePercent  decimal.Decimal `json:"fee_percent"`
+	SourceURL   string          `json:"source_url"`
+	EffectiveAt time.Time       `json:"effective_at"`
+	FetchedAt   time.Time       `json:"fetched_at"`
 }
 
 func (s RateSnapshot) Validate() error {
@@ -61,4 +89,3 @@ func ValidCurrency(value string) bool {
 	_, ok := SupportedCurrencies[NormalizeCurrency(value)]
 	return ok
 }
-

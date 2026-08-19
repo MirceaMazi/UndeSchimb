@@ -43,10 +43,13 @@ func main() {
 		providers.NewRaiffeisenProvider(httpClient),
 		providers.NewCECProvider(httpClient),
 		providers.NewXTBProvider(httpClient, configuration.XTBHolidays),
+		providers.NewRevolutProvider(httpClient),
+		providers.NewTavexProvider(httpClient),
+		providers.NewLuxorBucharestProvider(httpClient),
 	)
 	go collector.Run(appContext)
 
-	comparison := service.NewComparisonService(database)
+	comparison := service.NewComparisonService(database, configuration.XTBHolidays)
 	server := &http.Server{
 		Addr:              ":" + configuration.Port,
 		Handler:           httpapi.NewRouter(comparison, configuration.CorsOrigin),

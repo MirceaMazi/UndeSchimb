@@ -61,10 +61,10 @@ func (p *XTBProvider) Fetch(ctx context.Context) ([]domain.RateSnapshot, error) 
 		// an effective rate, allowing the common calculator to compare it with banks.
 		quotes = append(quotes, domain.RateSnapshot{
 			Provider: "xtb", Currency: currency,
-			BuyRate: quote.Bid.Mul(decimal.NewFromInt(1).Sub(fee)),
-			SellRate: quote.Ask.Div(decimal.NewFromInt(1).Sub(fee)),
+			BuyRate:    quote.Bid.Mul(decimal.NewFromInt(1).Sub(fee)),
+			SellRate:   quote.Ask.Div(decimal.NewFromInt(1).Sub(fee)),
 			FeePercent: fee.Mul(decimal.NewFromInt(100)),
-			SourceURL: quote.URL, EffectiveAt: now.UTC(), FetchedAt: now.UTC(),
+			SourceURL:  quote.URL, EffectiveAt: now.UTC(), FetchedAt: now.UTC(),
 		})
 	}
 	return quotes, nil
@@ -192,7 +192,7 @@ func fetchXTBWidgetQuote(ctx context.Context, meta xtbPairMeta) (decimal.Decimal
 	_ = connection.SetReadDeadline(requestDeadline)
 	_ = connection.SetWriteDeadline(requestDeadline)
 	logon := map[string]any{"reqId": "logonRestricted", "command": map[string]any{"CoreAPI": map[string]any{
-		"endpoint": meta.Connection.Endpoint,
+		"endpoint":        meta.Connection.Endpoint,
 		"logonRestricted": map[string]string{"user": meta.Connection.User, "accessCode": meta.Connection.AccessCode},
 	}}}
 	if err := connection.WriteJSON(logon); err != nil {
@@ -249,45 +249,9 @@ func xtbFee(now time.Time, extraHolidays map[string]struct{}) decimal.Decimal {
 }
 
 func bucharestLocation() *time.Location {
-	location, err := time.LoadLocation("Europe/Bucharest")
-	if err != nil {
-		return time.UTC
-	}
-	return location
+	return domain.BucharestLocation()
 }
 
 func isRomanianMarketHoliday(now time.Time, extra map[string]struct{}) bool {
-	if now.Weekday() == time.Saturday || now.Weekday() == time.Sunday {
-		return true
-	}
-	if _, exists := extra[now.Format("2006-01-02")]; exists {
-		return true
-	}
-	fixed := map[string]struct{}{
-		"01-01": {}, "01-02": {}, "01-24": {}, "05-01": {}, "06-01": {},
-		"08-15": {}, "11-30": {}, "12-01": {}, "12-25": {}, "12-26": {},
-	}
-	if _, exists := fixed[now.Format("01-02")]; exists {
-		return true
-	}
-	easter := orthodoxEaster(now.Year(), now.Location())
-	for _, holiday := range []time.Time{easter.AddDate(0, 0, -2), easter.AddDate(0, 0, 1), easter.AddDate(0, 0, 50)} {
-		if holiday.Format("2006-01-02") == now.Format("2006-01-02") {
-			return true
-		}
-	}
-	return false
-}
-
-// orthodoxEaster uses the Julian-calendar computus and converts the date to the
-// Gregorian calendar, which is sufficient for Romanian public holidays this century.
-func orthodoxEaster(year int, location *time.Location) time.Time {
-	a := year % 4
-	b := year % 7
-	c := year % 19
-	d := (19*c + 15) % 30
-	e := (2*a + 4*b - d + 34) % 7
-	month := (d + e + 114) / 31
-	day := ((d + e + 114) % 31) + 1
-	return time.Date(year, time.Month(month), day, 0, 0, 0, 0, location).AddDate(0, 0, 13)
+	return domain.IsRomanianNonWorkingDay(now, extra)
 }

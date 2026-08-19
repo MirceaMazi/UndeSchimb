@@ -11,13 +11,24 @@ async function request<T>(path: string): Promise<T> {
   return payload as T
 }
 
-export function getComparison(from: string, to: string, amount: string) {
+export async function getComparison(from: string, to: string, amount: string) {
   const query = new URLSearchParams({ from, to, amount })
-  return request<Comparison>(`/comparison?${query}`)
+  const comparison = await request<Comparison>(`/comparison?${query}`)
+  return {
+    ...comparison,
+    offers: (comparison.offers ?? []).map((offer) => ({
+      ...offer,
+      conditions: offer.conditions ?? [],
+      location_policy: offer.location_policy ?? 'not_applicable',
+      location_label: offer.location_label ?? '',
+      location_note: offer.location_note ?? '',
+    })),
+    provider_notices: (comparison.provider_notices ?? []).map((notice) => ({ ...notice, conditions: notice.conditions ?? [] })),
+    missing_sources: comparison.missing_sources ?? [],
+  }
 }
 
 export function getHistory(provider: string, currency: string, side: 'buy' | 'sell', period: number) {
   const query = new URLSearchParams({ provider, currency, side, period: String(period) })
   return request<History>(`/history?${query}`)
 }
-

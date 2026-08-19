@@ -1,0 +1,17 @@
+{
+  "name": "UndeSchimb",
+  "short_name": "UndeSchimb",
+  "description": "Compară cursurile valutare la bănci din România.",
+  "lang": "ro-RO",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fffdfa",
+  "theme_color": "#0c2532",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

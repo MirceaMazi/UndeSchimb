@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://undeschimb.onrender.com/sitemap.xml

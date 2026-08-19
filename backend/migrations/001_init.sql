@@ -26,3 +26,10 @@ CREATE TABLE IF NOT EXISTS collection_runs (
     completed_at TIMESTAMPTZ NOT NULL
 );
 
+-- Transilvania Exchange was removed when the product focus moved to Bucharest.
+-- Keep existing installations free of snapshots collected by the retired adapter.
+DELETE FROM rate_snapshots
+WHERE provider = 'transilvania_exchange';
+
+DELETE FROM collection_runs
+WHERE provider = 'transilvania_exchange';

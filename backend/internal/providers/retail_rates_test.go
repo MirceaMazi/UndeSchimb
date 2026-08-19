@@ -49,8 +49,14 @@ fxRatesData.currencies = [
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(rates) != 8 {
+		t.Fatalf("expected standard and preferential rates for four currencies, got %d", len(rates))
+	}
 	if got := rates[0].SellRate.String(); got != "5.35" {
 		t.Fatalf("expected standard sell rate 5.35, got %s", got)
+	}
+	if rates[1].Provider != "ing_preferential" || rates[1].SellRate.String() != "5.2" {
+		t.Fatalf("unexpected preferential ING rate: %#v", rates[1])
 	}
 }
 

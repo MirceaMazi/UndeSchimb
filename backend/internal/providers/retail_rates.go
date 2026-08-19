@@ -147,24 +147,31 @@ func (p *INGProvider) Fetch(ctx context.Context) ([]domain.RateSnapshot, error) 
 	return ParseINGRates(string(payload), time.Now().UTC())
 }
 
-var ingStandardRatePattern = regexp.MustCompile(`(?s)\{"code"\s*:\s*"([A-Z]{3})"[^{}]*,"sell"\s*:\s*\{[^{}]*"promo2"\s*:\s*"([0-9.]+)"[^{}]*\},"buy"\s*:\s*\{[^{}]*"promo2"\s*:\s*"([0-9.]+)"[^{}]*\}`)
+var ingRatePattern = regexp.MustCompile(`(?s)\{"code"\s*:\s*"([A-Z]{3})"[^{}]*,"sell"\s*:\s*\{[^{}]*"promo1"\s*:\s*"([0-9.]+)"[^{}]*"promo2"\s*:\s*"([0-9.]+)"[^{}]*\},"buy"\s*:\s*\{[^{}]*"promo1"\s*:\s*"([0-9.]+)"[^{}]*"promo2"\s*:\s*"([0-9.]+)"[^{}]*\}`)
 
-// ParseINGRates intentionally uses promo2: ING labels promo1 as its
-// advantageous/personalized rate and promo2 as the standard public rate.
+// ING publishes both its advantageous (promo1) and standard (promo2) account
+// rates. They are persisted separately because the advantageous quote has
+// package and monthly-volume conditions.
 func ParseINGRates(document string, fetchedAt time.Time) ([]domain.RateSnapshot, error) {
-	matches := ingStandardRatePattern.FindAllStringSubmatch(document, -1)
-	snapshots := make([]domain.RateSnapshot, 0, 4)
+	matches := ingRatePattern.FindAllStringSubmatch(document, -1)
+	snapshots := make([]domain.RateSnapshot, 0, 8)
 	for _, match := range matches {
 		currency := domain.NormalizeCurrency(match[1])
 		if !domain.ValidCurrency(currency) || currency == "RON" {
 			continue
 		}
-		sell, sellErr := decimal.NewFromString(match[2])
-		buy, buyErr := decimal.NewFromString(match[3])
-		if sellErr != nil || buyErr != nil || !validRetailQuote(buy, sell) {
-			return nil, fmt.Errorf("invalid ING %s standard quote", currency)
+		preferentialSell, preferentialSellErr := decimal.NewFromString(match[2])
+		standardSell, standardSellErr := decimal.NewFromString(match[3])
+		preferentialBuy, preferentialBuyErr := decimal.NewFromString(match[4])
+		standardBuy, standardBuyErr := decimal.NewFromString(match[5])
+		if preferentialSellErr != nil || standardSellErr != nil || preferentialBuyErr != nil || standardBuyErr != nil ||
+			!validRetailQuote(preferentialBuy, preferentialSell) || !validRetailQuote(standardBuy, standardSell) {
+			return nil, fmt.Errorf("invalid ING %s quote", currency)
 		}
-		snapshots = append(snapshots, retailSnapshot("ing", currency, buy, sell, INGSourceURL, fetchedAt, fetchedAt))
+		snapshots = append(snapshots,
+			retailSnapshot("ing", currency, standardBuy, standardSell, INGSourceURL, fetchedAt, fetchedAt),
+			retailSnapshot("ing_preferential", currency, preferentialBuy, preferentialSell, INGSourceURL, fetchedAt, fetchedAt),
+		)
 	}
 	return requireFourRetailSnapshots("ING", snapshots)
 }
