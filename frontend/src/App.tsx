@@ -19,6 +19,18 @@ const PROVIDER_NAMES: Record<string, string> = {
   xtb: 'XTB',
 }
 
+type Theme = 'light' | 'dark'
+
+function initialTheme(): Theme {
+  try {
+    const savedTheme = window.localStorage.getItem('undeschimb-theme')
+    if (savedTheme === 'light' || savedTheme === 'dark') return savedTheme
+  } catch {
+    // A blocked localStorage should not prevent the calculator from loading.
+  }
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
 function number(value: string | number, minimumFractionDigits = 2, maximumFractionDigits = 4) {
   return new Intl.NumberFormat('ro-RO', { minimumFractionDigits, maximumFractionDigits }).format(Number(value))
 }
@@ -37,6 +49,7 @@ function relativeTime(value: string) {
 }
 
 function App() {
+  const [theme, setTheme] = useState<Theme>(initialTheme)
   const [amount, setAmount] = useState('1000')
   const [currency, setCurrency] = useState('EUR')
   const [direction, setDirection] = useState<'ron-to-fx' | 'fx-to-ron'>('ron-to-fx')
@@ -54,6 +67,16 @@ function App() {
   const resultTitle = comparison
     ? `Pentru ${number(comparison.input_amount)} ${comparison.from}, primești`
     : loading ? 'Căutăm cele mai bune cursuri…' : `Pentru ${number(amount)} ${from}, primești`
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#081d24' : '#0c2532')
+    try {
+      window.localStorage.setItem('undeschimb-theme', theme)
+    } catch {
+      // The selected theme remains active for this session if storage is unavailable.
+    }
+  }, [theme])
 
   useEffect(() => {
     if (!validAmount) {
@@ -96,7 +119,20 @@ function App() {
           <span className="brand-mark">↔</span>
           <span>Unde<span>Schimb</span></span>
         </a>
-        <a className="nav-link" href="#istoric">Istoric cursuri</a>
+        <div className="nav-actions">
+          <a className="nav-link" href="#istoric">Istoric cursuri</a>
+          <button
+            type="button"
+            className="theme-toggle"
+            aria-pressed={theme === 'dark'}
+            aria-label={theme === 'dark' ? 'Activează modul luminos' : 'Activează modul întunecat'}
+            title={theme === 'dark' ? 'Mod luminos' : 'Mod întunecat'}
+            onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
+          >
+            <span aria-hidden="true">{theme === 'dark' ? '☀' : '☾'}</span>
+            <span className="theme-toggle-label">{theme === 'dark' ? 'Luminos' : 'Întunecat'}</span>
+          </button>
+        </div>
       </nav>
 
       <section className="hero shell" id="sus">

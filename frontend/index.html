@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0c2532" />
+    <script>
+      try {
+        const savedTheme = localStorage.getItem('undeschimb-theme')
+        const theme = savedTheme === 'light' || savedTheme === 'dark'
+          ? savedTheme
+          : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        document.documentElement.dataset.theme = theme
+        document.querySelector('meta[name="theme-color"]').setAttribute('content', theme === 'dark' ? '#081d24' : '#0c2532')
+      } catch {}
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="description" content="Compară cursurile valutare ale principalelor bănci din România." />
     <title>UndeSchimb — cursul care rămâne cu tine</title>
