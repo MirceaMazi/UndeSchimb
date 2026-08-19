@@ -132,8 +132,8 @@ function App() {
             </div>
           </label>
           <div className="swap-control" aria-label="Direcția conversiei">
-            <button type="button" className={direction === 'ron-to-fx' ? 'active' : ''} onClick={() => setDirection('ron-to-fx')}>RON → valută</button>
-            <button type="button" className={direction === 'fx-to-ron' ? 'active' : ''} onClick={() => setDirection('fx-to-ron')}>Valută → RON</button>
+            <button type="button" aria-pressed={direction === 'ron-to-fx'} className={direction === 'ron-to-fx' ? 'active' : ''} onClick={() => setDirection('ron-to-fx')}>RON → valută</button>
+            <button type="button" aria-pressed={direction === 'fx-to-ron'} className={direction === 'fx-to-ron' ? 'active' : ''} onClick={() => setDirection('fx-to-ron')}>Valută → RON</button>
           </div>
           <label className="currency-field">
             <span>Moneda</span>
@@ -185,7 +185,7 @@ function App() {
             <select value={historyProvider} onChange={(event) => setHistoryProvider(event.target.value)}>
               {(providers.length ? providers : Object.keys(PROVIDER_NAMES)).map((provider) => <option value={provider} key={provider}>{PROVIDER_NAMES[provider]}</option>)}
             </select>
-            {[7, 30, 90].map((days) => <button className={historyPeriod === days ? 'selected' : ''} type="button" key={days} onClick={() => setHistoryPeriod(days)}>{days}z</button>)}
+            {[7, 30, 90].map((days) => <button aria-pressed={historyPeriod === days} className={historyPeriod === days ? 'selected' : ''} type="button" key={days} onClick={() => setHistoryPeriod(days)}>{days}z</button>)}
           </div>
         </div>
         <HistoryChart history={history} providerName={PROVIDER_NAMES[historyProvider]} />
@@ -202,24 +202,63 @@ function App() {
 function OffersTable({ offers, outputCurrency }: { offers: Offer[]; outputCurrency: string }) {
   if (!offers.length) return <div className="message">Niciun curs nu este disponibil încă. Verificăm sursele la fiecare 15 minute.</div>
   return (
-    <div className="table-wrap">
-      <table>
-        <thead><tr><th>Furnizor</th><th>Curs efectiv</th><th>Primești</th><th>Diferență față de BNR</th><th>Stare</th></tr></thead>
-        <tbody>
-          {offers.map((offer, index) => {
-            const difference = Number(offer.difference_from_bnr_ron)
-            return <tr key={offer.provider} className={index === 0 ? 'best' : ''}>
-              <td><div className="provider"><b>{offer.provider_name}</b>{index === 0 && <span>Cea mai bună ofertă</span>}{offer.indicative && <small>Estimare indicativă</small>}</div></td>
-              <td>{number(offer.effective_rate, 4, 4)} <small>RON</small></td>
-              <td className="received">{money(offer.output_amount, outputCurrency)}</td>
-              <td className={difference < 0 ? 'negative' : 'positive'}>{difference > 0 ? '+' : ''}{money(offer.difference_from_bnr_ron, 'RON')}<small>{number(offer.difference_percent, 2, 2)}%</small></td>
-              <td><a href={offer.source_url} target="_blank" rel="noreferrer" className={offer.stale ? 'stale' : 'fresh'}>{offer.stale ? 'Expirat' : 'Actualizat'}<small>{relativeTime(offer.fetched_at)}</small></a>{offer.provider === 'xtb' && <small className="fee">taxă {number(offer.fee_percent, 1, 1)}%</small>}</td>
-            </tr>
-          })}
-        </tbody>
-      </table>
-    </div>
+    <>
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th>Furnizor</th><th>Curs efectiv</th><th>Primești</th><th>Diferență față de BNR</th><th>Stare</th></tr></thead>
+          <tbody>
+            {offers.map((offer, index) => {
+              const difference = Number(offer.difference_from_bnr_ron)
+              return <tr key={offer.provider} className={index === 0 ? 'best' : ''}>
+                <td><div className="provider"><b>{offer.provider_name}</b>{index === 0 && <span>Cea mai bună ofertă</span>}{offer.indicative && <small>Estimare indicativă</small>}</div></td>
+                <td>{number(offer.effective_rate, 4, 4)} <small>RON</small></td>
+                <td className="received">{money(offer.output_amount, outputCurrency)}</td>
+                <td className={difference < 0 ? 'negative' : 'positive'}>{difference > 0 ? '+' : ''}{money(offer.difference_from_bnr_ron, 'RON')}<small>{number(offer.difference_percent, 2, 2)}%</small></td>
+                <td><a href={offer.source_url} target="_blank" rel="noreferrer" className={offer.stale ? 'stale' : 'fresh'}>{offer.stale ? 'Expirat' : 'Actualizat'}<small>{relativeTime(offer.fetched_at)}</small></a>{offer.provider === 'xtb' && <small className="fee">taxă {number(offer.fee_percent, 1, 1)}%</small>}</td>
+              </tr>
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="offers-mobile">
+        {offers.map((offer, index) => <OfferCard key={offer.provider} offer={offer} index={index} outputCurrency={outputCurrency} />)}
+      </div>
+    </>
   )
+}
+
+function OfferCard({ offer, index, outputCurrency }: { offer: Offer; index: number; outputCurrency: string }) {
+  const difference = Number(offer.difference_from_bnr_ron)
+  const differenceClass = difference < 0 ? 'negative' : 'positive'
+
+  return <article className={`offer-card ${index === 0 ? 'best' : ''}`}>
+    <div className="offer-card-top">
+      <div className="provider">
+        <b>{offer.provider_name}</b>
+        {index === 0 && <span>Cea mai bună ofertă</span>}
+        {offer.indicative && <small>Estimare indicativă</small>}
+      </div>
+      <a href={offer.source_url} target="_blank" rel="noreferrer" className={`offer-status ${offer.stale ? 'stale' : 'fresh'}`}>
+        {offer.stale ? 'Expirat' : 'Actualizat'}
+        <small>{relativeTime(offer.fetched_at)}</small>
+      </a>
+    </div>
+    <div className="offer-card-results">
+      <div>
+        <span>Primești</span>
+        <strong>{money(offer.output_amount, outputCurrency)}</strong>
+      </div>
+      <div className={differenceClass}>
+        <span>Față de BNR</span>
+        <strong>{difference > 0 ? '+' : ''}{money(offer.difference_from_bnr_ron, 'RON')}</strong>
+        <small>{number(offer.difference_percent, 2, 2)}%</small>
+      </div>
+    </div>
+    <div className="offer-card-rate">
+      <span>Curs efectiv <b>{number(offer.effective_rate, 4, 4)} RON</b></span>
+      {offer.provider === 'xtb' && <span className="fee">taxă {number(offer.fee_percent, 1, 1)}%</span>}
+    </div>
+  </article>
 }
 
 function HistoryChart({ history, providerName }: { history: History | null; providerName: string }) {
