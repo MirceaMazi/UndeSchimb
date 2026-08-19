@@ -1,0 +1,38 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: undeschimb
+      POSTGRES_USER: undeschimb
+      POSTGRES_PASSWORD: undeschimb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U undeschimb -d undeschimb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  api:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgres://undeschimb:undeschimb@db:5432/undeschimb?sslmode=disable
+      PORT: "8080"
+      CORS_ORIGIN: http://localhost:5173
+      MIGRATIONS_PATH: /app/migrations/001_init.sql
+      XTB_HOLIDAYS: ${XTB_HOLIDAYS:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+
+  web:
+    build: ./frontend
+    depends_on:
+      - api
+    ports:
+      - "5173:80"
+
+volumes:
+  postgres_data:
