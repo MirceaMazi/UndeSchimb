@@ -84,6 +84,10 @@ const FAQ_ITEMS = [
     answer: 'Activează comutatoarele „Oferte speciale” deasupra clasamentului. O ofertă inactivă este clasată după rezultatul estimat, dar rămâne marcată clar ca indisponibilă acum.',
   },
   {
+    question: 'Cum aleg cel mai bun curs valutar când vreau să încep să investesc?',
+    answer: 'Compară suma netă care ajunge în moneda contului de investiții, nu doar cursul afișat. Verifică diferența față de BNR, spreadul, comisionul de conversie și dacă oferta este disponibilă pentru suma și momentul ales.',
+  },
+  {
     question: 'De ce oferta XTB este marcată ca indicativă?',
     answer: 'XTB folosește cotații Standard care se pot modifica mai repede decât verificarea noastră. Calculul include comisionul de conversie publicat, însă prețul executabil din platformă poate diferi.',
   },
@@ -328,6 +332,17 @@ function App() {
         <div className="seo-copy">
           <p>La un schimb valutar contează suma pe care o primești, nu doar cifra afișată ca „curs”. Pentru RON spre valută, un curs de vânzare mai mic înseamnă mai multă valută primită. Pentru valută spre RON, un curs de cumpărare mai mare înseamnă mai mulți lei primiți.</p>
           <p>UndeSchimb separă cursurile standard de avantajele condiționate și grupează băncile, brokerii și casele de schimb. Astfel compari oferte similare și vezi exact ce condiții trebuie îndeplinite.</p>
+        </div>
+        <div className="investment-guide">
+          <div>
+            <p className="eyebrow">SCHIMB VALUTAR PENTRU INVESTIȚII</p>
+            <h3>Găsește un curs mai bun înainte să începi să investești</h3>
+          </div>
+          <div>
+            <p>Dacă alimentezi în EUR sau USD un cont de investiții din venituri în RON, conversia valutară este unul dintre primele costuri pe care le suporți. Comparatorul te ajută să vezi câtă valută ajunge efectiv la tine printr-o bancă, un broker sau un serviciu fintech.</p>
+            <p>Pentru investiții recurente, diferențele mici de curs și comisioanele repetate se pot aduna în timp. Compară rezultatul net, diferența față de BNR, programul ofertelor speciale și eventualele taxe înainte de fiecare transfer. Cotația executabilă din platforma aleasă rămâne cea care se aplică tranzacției.</p>
+            <small>Informațiile sunt orientative și nu reprezintă recomandări de investiții.</small>
+          </div>
         </div>
         <div className="currency-guides" aria-label="Ghiduri pentru monede">
           {CURRENCY_GUIDES.map((guide) => <a key={guide.code} href={guide.href}><span>{guide.code}</span>{guide.label}<b aria-hidden="true">→</b></a>)}
