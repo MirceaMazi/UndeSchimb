@@ -21,6 +21,8 @@ export type Offer = {
   stale: boolean
   indicative: boolean
   conditional: boolean
+  active_now: boolean
+  request_eligible: boolean
   conditions: string[]
   location_policy: 'not_applicable' | 'same_all_locations' | 'varies_by_city' | 'single_location'
   location_label: string

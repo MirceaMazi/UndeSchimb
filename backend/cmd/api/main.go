@@ -39,6 +39,7 @@ func main() {
 		providers.NewBancaTransilvaniaProvider(httpClient),
 		providers.NewBCRProvider(httpClient),
 		providers.NewBankPageProvider("brd", "https://www.brd.ro/curs-valutar-si-dobanzi-de-referinta", []string{"Schimb valutar în cont", "Account Exchange Rates"}, httpClient),
+		providers.NewSectionBankPageProvider("brd_you", "https://www.brd.ro/curs-valutar-si-dobanzi-de-referinta", "tabExchangeYou", httpClient),
 		providers.NewINGProvider(httpClient),
 		providers.NewRaiffeisenProvider(httpClient),
 		providers.NewCECProvider(httpClient),

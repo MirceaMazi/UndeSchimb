@@ -37,14 +37,15 @@ func TestCompareRONToCurrencyUsesSellRateAndRanksOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := response.Offers[0].Provider; got != "brd" {
-		t.Fatalf("expected BRD first, got %s", got)
+	offer, found := findOffer(response.Offers, "brd")
+	if !found {
+		t.Fatal("expected a BRD offer")
 	}
-	if response.Offers[0].OutputAmount.StringFixed(2) != "100.00" {
-		t.Fatalf("unexpected output: %s", response.Offers[0].OutputAmount)
+	if offer.OutputAmount.StringFixed(2) != "100.00" {
+		t.Fatalf("unexpected output: %s", offer.OutputAmount)
 	}
-	if response.Offers[0].DifferenceFromBNRInRON.StringFixed(2) != "-10.00" {
-		t.Fatalf("unexpected BNR difference: %s", response.Offers[0].DifferenceFromBNRInRON)
+	if offer.DifferenceFromBNRInRON.StringFixed(2) != "-10.00" {
+		t.Fatalf("unexpected BNR difference: %s", offer.DifferenceFromBNRInRON)
 	}
 }
 
@@ -57,17 +58,21 @@ func TestCompareCurrencyToRONUsesBuyRate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := response.Offers[0].OutputAmount.StringFixed(2); got != "480.00" {
+	offer, found := findOffer(response.Offers, "bcr")
+	if !found {
+		t.Fatal("expected a BCR offer")
+	}
+	if got := offer.OutputAmount.StringFixed(2); got != "480.00" {
 		t.Fatalf("expected 480 RON, got %s", got)
 	}
-	if got := response.Offers[0].DifferenceFromBNR.StringFixed(2); got != "-20.00" {
+	if got := offer.DifferenceFromBNR.StringFixed(2); got != "-20.00" {
 		t.Fatalf("expected -20 RON, got %s", got)
 	}
 }
 
 func TestCompareCategorizesProvidersAndKeepsINGPreferentialConditional(t *testing.T) {
 	service := NewComparisonService(fakeRateStore{latest: []domain.RateSnapshot{
-		snapshot("bnr", "5", "5"), snapshot("ing", "4.8", "5.2"), snapshot("ing_preferential", "4.95", "5.05"), snapshot("xtb", "4.9", "5.1"), snapshot("revolut", "4.92", "5.08"), snapshot("tavex", "4.7", "5.3"), snapshot("luxor_bucharest", "4.8", "5.2"),
+		snapshot("bnr", "5", "5"), snapshot("brd_you", "4.97", "5.03"), snapshot("ing", "4.8", "5.2"), snapshot("ing_preferential", "4.95", "5.05"), snapshot("xtb", "4.9", "5.1"), snapshot("revolut", "4.92", "5.08"), snapshot("tavex", "4.7", "5.3"), snapshot("luxor_bucharest", "4.8", "5.2"),
 	}})
 	service.now = func() time.Time { return time.Date(2026, 8, 19, 14, 0, 0, 0, time.UTC) }
 	response, err := service.Compare(context.Background(), ComparisonRequest{From: "RON", To: "EUR", Amount: decimal.NewFromInt(3000)})
@@ -93,17 +98,20 @@ func TestCompareCategorizesProvidersAndKeepsINGPreferentialConditional(t *testin
 	if offer := byProvider["ing_preferential"]; offer.OfferType != "preferential" || !offer.Conditional {
 		t.Fatalf("expected conditional ING preferential offer, got %#v", offer)
 	}
+	if offer := byProvider["brd_you"]; offer.OfferType != "preferential" || !offer.Conditional {
+		t.Fatalf("expected conditional BRD YOU offer, got %#v", offer)
+	}
 	if len(response.ProviderNotices) < 3 {
 		t.Fatalf("expected ING, TradeVille, and Revolut notices, got %#v", response.ProviderNotices)
 	}
-	foundRevolut := false
+	foundNotices := map[string]bool{}
 	for _, notice := range response.ProviderNotices {
-		if notice.Provider == "revolut" && notice.Kind == "conditional" {
-			foundRevolut = true
-		}
+		foundNotices[notice.Provider] = true
 	}
-	if !foundRevolut {
-		t.Fatalf("expected a transparent Revolut quote notice, got %#v", response.ProviderNotices)
+	for _, provider := range []string{"revolut", "brd_you", "banca_transilvania_negotiated", "bcr_preferential", "cec_digital"} {
+		if !foundNotices[provider] {
+			t.Fatalf("expected an audited %s benefit notice, got %#v", provider, response.ProviderNotices)
+		}
 	}
 }
 
@@ -153,7 +161,16 @@ func containsProvider(offers []Offer, provider string) bool {
 	return false
 }
 
-func TestRaiffeisenSmartHourIsRankedOnlyWhileActiveAndWithinLimit(t *testing.T) {
+func findOffer(offers []Offer, provider string) (Offer, bool) {
+	for _, offer := range offers {
+		if offer.Provider == provider {
+			return offer, true
+		}
+	}
+	return Offer{}, false
+}
+
+func TestRaiffeisenSmartHourExposesAnAvailabilityAwarePreview(t *testing.T) {
 	store := fakeRateStore{latest: []domain.RateSnapshot{snapshot("bnr", "5", "5"), snapshot("raiffeisen", "4.8", "5.2")}}
 	service := NewComparisonService(store)
 	service.now = func() time.Time {
@@ -168,6 +185,9 @@ func TestRaiffeisenSmartHourIsRankedOnlyWhileActiveAndWithinLimit(t *testing.T) 
 	for _, offer := range response.Offers {
 		if offer.Provider == "raiffeisen_smart_hour" {
 			found = true
+			if !offer.ActiveNow || !offer.RequestEligible {
+				t.Fatalf("expected an active and eligible Smart Hour offer: %#v", offer)
+			}
 			if offer.OutputAmount.StringFixed(2) != "100.00" || offer.DifferenceFromBNRInRON.StringFixed(2) != "0.00" {
 				t.Fatalf("unexpected Smart Hour calculation: %#v", offer)
 			}
@@ -182,10 +202,9 @@ func TestRaiffeisenSmartHourIsRankedOnlyWhileActiveAndWithinLimit(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, offer := range outside.Offers {
-		if offer.Provider == "raiffeisen_smart_hour" {
-			t.Fatal("Smart Hour must not be ranked outside 10:00-11:00")
-		}
+	preview, found := findOffer(outside.Offers, "raiffeisen_smart_hour")
+	if !found || preview.ActiveNow {
+		t.Fatalf("expected an inactive Smart Hour preview outside 10:00-11:00, got %#v", preview)
 	}
 }
 
@@ -196,15 +215,48 @@ func TestRaiffeisenSmartHourRejectsAmountAboveDailyLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, offer := range response.Offers {
-		if offer.Provider == "raiffeisen_smart_hour" {
-			t.Fatal("Smart Hour must not be ranked above the 1,500 EUR daily limit")
-		}
+	preview, found := findOffer(response.Offers, "raiffeisen_smart_hour")
+	if !found || preview.RequestEligible {
+		t.Fatalf("expected an ineligible Smart Hour preview above the daily limit, got %#v", preview)
 	}
 	for _, notice := range response.ProviderNotices {
 		if notice.Provider == "raiffeisen_smart_hour" && notice.RequestEligible {
 			t.Fatal("expected the Smart Hour notice to flag the amount as ineligible")
 		}
+	}
+}
+
+func TestTradevilleUsesSymmetricMaximum50PipSpreadAroundBNR(t *testing.T) {
+	service := NewComparisonService(fakeRateStore{latest: []domain.RateSnapshot{snapshot("bnr", "5", "5")}})
+	service.now = func() time.Time { return time.Date(2026, 8, 19, 10, 0, 0, 0, time.UTC) }
+
+	buying, err := service.Compare(context.Background(), ComparisonRequest{From: "RON", To: "EUR", Amount: decimal.NewFromInt(1000)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	buyOffer, found := findOffer(buying.Offers, "tradeville")
+	if !found || buyOffer.EffectiveRate.StringFixed(4) != "5.0025" || !buyOffer.Indicative {
+		t.Fatalf("unexpected TradeVille RON to EUR estimate: %#v", buyOffer)
+	}
+
+	selling, err := service.Compare(context.Background(), ComparisonRequest{From: "EUR", To: "RON", Amount: decimal.NewFromInt(100)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sellOffer, found := findOffer(selling.Offers, "tradeville")
+	if !found || sellOffer.EffectiveRate.StringFixed(4) != "4.9975" || sellOffer.OutputAmount.StringFixed(2) != "499.75" {
+		t.Fatalf("unexpected TradeVille EUR to RON estimate: %#v", sellOffer)
+	}
+}
+
+func TestTradevilleDoesNotInventANumericQuoteForOtherCurrencies(t *testing.T) {
+	service := NewComparisonService(fakeRateStore{latest: []domain.RateSnapshot{snapshot("bnr", "5", "5")}})
+	response, err := service.Compare(context.Background(), ComparisonRequest{From: "RON", To: "USD", Amount: decimal.NewFromInt(1000)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsProvider(response.Offers, "tradeville") {
+		t.Fatal("TradeVille must not have a derived public quote outside EUR/RON")
 	}
 }
 
@@ -217,7 +269,8 @@ func TestCompareMarksAnOldSnapshotStale(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !response.Offers[0].Stale {
+	offer, found := findOffer(response.Offers, "bcr")
+	if !found || !offer.Stale {
 		t.Fatal("expected stale offer")
 	}
 }

@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"time"
+	_ "time/tzdata"
+)
 
 func BucharestLocation() *time.Location {
 	location, err := time.LoadLocation("Europe/Bucharest")

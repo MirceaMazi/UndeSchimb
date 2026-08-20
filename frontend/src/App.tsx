@@ -13,6 +13,7 @@ const PROVIDER_NAMES: Record<string, string> = {
   banca_transilvania: 'Banca Transilvania',
   bcr: 'BCR',
   brd: 'BRD',
+  brd_you: 'BRD — curs YOU',
   ing: 'ING',
   ing_preferential: 'ING — curs avantajos',
   raiffeisen: 'Raiffeisen',
@@ -32,7 +33,10 @@ const CATEGORY_TABS: { id: ProviderTab; label: string; shortLabel: string }[] = 
   { id: 'physical_exchanges', label: 'Case de schimb', shortLabel: 'Schimb valutar' },
 ]
 
-const HISTORY_FALLBACK = ['banca_transilvania', 'bcr', 'brd', 'ing', 'ing_preferential', 'raiffeisen', 'cec', 'xtb', 'revolut', 'tavex', 'luxor_bucharest']
+const HISTORY_FALLBACK = ['banca_transilvania', 'bcr', 'brd', 'brd_you', 'ing', 'ing_preferential', 'raiffeisen', 'cec', 'xtb', 'revolut', 'tavex', 'luxor_bucharest']
+
+const SPECIAL_PROVIDER_IDS = ['ing_preferential', 'raiffeisen_smart_hour', 'brd_you'] as const
+type SpecialProviderID = typeof SPECIAL_PROVIDER_IDS[number]
 
 type Theme = 'light' | 'dark'
 
@@ -76,8 +80,8 @@ const FAQ_ITEMS = [
     answer: 'Clasamentul băncilor folosește cursurile standard pentru conturi personale. Cursurile preferențiale și promoțiile apar separat, cu condițiile lor, iar brokerii și casele de schimb au file dedicate.',
   },
   {
-    question: 'De ce ING și Smart Hour nu apar mereu în clasamentul băncilor?',
-    answer: 'Sunt avantaje condiționate de pachet, limite, monedă sau interval orar. Le arătăm separat și includem un rezultat numeric doar când există un curs public și putem verifica regulile relevante pentru simulare.',
+    question: 'Cum văd cursurile speciale ING, BRD și Raiffeisen?',
+    answer: 'Activează comutatoarele „Oferte speciale” deasupra clasamentului. O ofertă inactivă este clasată după rezultatul estimat, dar rămâne marcată clar ca indisponibilă acum.',
   },
   {
     question: 'De ce oferta XTB este marcată ca indicativă?',
@@ -106,6 +110,10 @@ function relativeTime(value: string) {
   return `acum ${Math.floor(seconds / 3600)} h`
 }
 
+function orderOffers(offers: Offer[]) {
+  return [...offers].sort((left, right) => Number(right.output_amount) - Number(left.output_amount))
+}
+
 function App() {
   const [theme, setTheme] = useState<Theme>(initialTheme)
   const [amount, setAmount] = useState('1000')
@@ -118,6 +126,11 @@ function App() {
   const [historyPeriod, setHistoryPeriod] = useState(30)
   const [history, setHistory] = useState<History | null>(null)
   const [activeCategory, setActiveCategory] = useState<ProviderTab>('all')
+  const [enabledSpecialOffers, setEnabledSpecialOffers] = useState<Record<SpecialProviderID, boolean>>({
+    ing_preferential: false,
+    raiffeisen_smart_hour: false,
+    brd_you: false,
+  })
 
   const from = direction === 'ron-to-fx' ? 'RON' : currency
   const to = direction === 'ron-to-fx' ? currency : 'RON'
@@ -151,7 +164,7 @@ function App() {
           if (!controller.signal.aborted) {
             setComparison(response)
             setError(null)
-            const historyOffers = response.offers.filter((offer) => offer.offer_type !== 'special')
+            const historyOffers = response.offers.filter((offer) => offer.offer_type !== 'special' && offer.provider !== 'tradeville')
             setHistoryProvider((current) => historyOffers.some((offer) => offer.provider === current) ? current : historyOffers[0]?.provider ?? current)
           }
         })
@@ -172,16 +185,16 @@ function App() {
 
   const providers = useMemo(() => {
     const available = comparison?.offers
-      .filter((offer) => offer.offer_type !== 'special')
+      .filter((offer) => offer.offer_type !== 'special' && offer.provider !== 'tradeville')
       .map((offer) => offer.provider) ?? []
     return [...new Set(available)]
   }, [comparison])
-  const rankedOffers = comparison?.offers.filter((offer) =>
-    (activeCategory === 'all' || offer.category === activeCategory) && offer.offer_type !== 'preferential' && offer.offer_type !== 'special',
-  ) ?? []
-  const benefitOffers = comparison?.offers.filter((offer) =>
-    (activeCategory === 'all' || offer.category === activeCategory) && (offer.offer_type === 'preferential' || offer.offer_type === 'special'),
-  ) ?? []
+  const rankedOffers = orderOffers(comparison?.offers.filter((offer) => {
+    if (activeCategory !== 'all' && offer.category !== activeCategory) return false
+    if (offer.provider in enabledSpecialOffers) return enabledSpecialOffers[offer.provider as SpecialProviderID]
+    return offer.offer_type !== 'preferential' && offer.offer_type !== 'special'
+  }) ?? [])
+  const benefitOffers = comparison?.offers.filter((offer) => activeCategory === 'all' || offer.category === activeCategory) ?? []
   const categoryNotices = comparison?.provider_notices?.filter((notice) => activeCategory === 'all' || notice.category === activeCategory) ?? []
   const informationNotices = categoryNotices.filter((notice) => notice.kind === 'quote_required' || notice.kind === 'ineligible')
 
@@ -266,13 +279,18 @@ function App() {
         {loading && !comparison && <div className="message">Se încarcă sursele disponibile…</div>}
         {comparison && <>
           <ProviderTabs activeCategory={activeCategory} onChange={setActiveCategory} />
+          {(activeCategory === 'all' || activeCategory === 'banks') && <SpecialOfferToggles
+            currency={currency}
+            enabled={enabledSpecialOffers}
+            onChange={(provider, checked) => setEnabledSpecialOffers((current) => ({ ...current, [provider]: checked }))}
+          />}
           <div className="ranking-heading">
             <div>
               <h3>{activeCategory === 'all' ? 'Clasament general' : activeCategory === 'banks' ? 'Clasament cursuri standard' : activeCategory === 'brokers' ? 'Cotații comparabile' : 'Cursuri pentru numerar'}</h3>
               <p>{activeCategory === 'all'
-                ? 'Toți furnizorii sunt reuniți aici; tipul ofertei și condițiile de utilizare rămân marcate clar.'
+                ? 'Toți furnizorii sunt reuniți aici; ofertele speciale apar numai dacă le activezi și rămân marcate clar.'
                 : activeCategory === 'banks'
-                ? 'Avantajele condiționate sunt explicate separat și nu schimbă clasamentul standard.'
+                ? 'Activează doar avantajele pentru care ești eligibil; ofertele inactive rămân vizibile ca previzualizare.'
                 : activeCategory === 'brokers'
                   ? 'Sunt ordonate doar ofertele pentru care există o cotație publică.'
                   : 'Sunt clasate numai cursurile pentru care suma ta îndeplinește pragurile publicate.'}</p>
@@ -384,6 +402,41 @@ function ProviderTabs({
   </div>
 }
 
+function SpecialOfferToggles({
+  currency,
+  enabled,
+  onChange,
+}: {
+  currency: string
+  enabled: Record<SpecialProviderID, boolean>
+  onChange: (provider: SpecialProviderID, checked: boolean) => void
+}) {
+  const options: { provider: SpecialProviderID; label: string; detail: string; supported: boolean }[] = [
+    { provider: 'ing_preferential', label: 'ING curs avantajos', detail: 'În funcție de pachet și limita lunară', supported: true },
+    { provider: 'raiffeisen_smart_hour', label: 'Raiffeisen Smart Hour', detail: currency === 'EUR' ? 'EUR/RON · 10:00–11:00' : 'Disponibil doar pentru EUR/RON', supported: currency === 'EUR' },
+    { provider: 'brd_you', label: 'BRD YOU', detail: currency === 'EUR' ? 'EUR/RON · disponibil 24/7' : 'Disponibil doar pentru EUR/RON', supported: currency === 'EUR' },
+  ]
+
+  return <section className="special-offer-controls" aria-labelledby="special-offers-title">
+    <div className="special-offer-heading">
+      <div><p className="eyebrow">OFERTE SPECIALE</p><h3 id="special-offers-title">Include avantajele tale</h3></div>
+      <p>Activează numai ofertele ale căror condiții le îndeplinești.</p>
+    </div>
+    <div className="special-toggle-grid">
+      {options.map((option) => <label className={`special-toggle ${!option.supported ? 'disabled' : ''}`} key={option.provider}>
+        <input
+          type="checkbox"
+          checked={option.supported && enabled[option.provider]}
+          disabled={!option.supported}
+          onChange={(event) => onChange(option.provider, event.target.checked)}
+        />
+        <span className="switch-track" aria-hidden="true"><span /></span>
+        <span className="special-toggle-copy"><b>{option.label}</b><small>{option.detail}</small></span>
+      </label>)}
+    </div>
+  </section>
+}
+
 function ProviderBenefits({
   notices,
   offers,
@@ -414,7 +467,15 @@ function ProviderBenefits({
               ? 'Prag neîndeplinit'
               : notice.category === 'physical_exchanges'
                 ? 'Curs aplicabil'
-                : notice.provider === 'revolut' ? 'Verifică planul' : 'Doar pentru clienți eligibili'
+                : notice.provider === 'revolut'
+                  ? 'Verifică planul'
+                  : notice.provider === 'cec_digital'
+                    ? 'Inclus în clasament'
+                    : notice.provider === 'brd_you'
+                      ? notice.request_eligible ? 'Disponibil 24/7' : 'Doar EUR/RON'
+                      : notice.provider === 'tradeville'
+                        ? notice.active_now ? 'Interval activ' : 'Interval 09:00–16:00'
+                        : notice.request_eligible ? 'Verifică în aplicație' : 'Condiții neîndeplinite'
         const statusClass = notice.active_now && notice.request_eligible ? 'active' : notice.request_eligible ? 'conditional' : 'unavailable'
         const difference = offer ? Number(offer.difference_from_bnr_ron) : 0
 
@@ -425,7 +486,7 @@ function ProviderBenefits({
           </div>
           <p>{notice.description}</p>
           {offer && <div className="benefit-result">
-            <span>Estimare pentru suma ta</span>
+            <span>{offer.active_now && offer.request_eligible ? 'Estimare pentru suma ta' : 'Previzualizare pentru suma ta'}</span>
             <strong>{money(offer.output_amount, outputCurrency)}</strong>
             <small className={difference < 0 ? 'negative' : 'positive'}>
               {difference > 0 ? '+' : ''}{money(offer.difference_from_bnr_ron, 'RON')} față de BNR
@@ -451,21 +512,26 @@ function OffersTable({
   showCategories: boolean
 }) {
   if (!offers.length && !informationNotices.length) return <div className="message">Niciun curs nu este disponibil încă. Verificăm sursele la fiecare 15 minute.</div>
+  const bestProvider = offers
+    .reduce<Offer | null>((best, offer) => (
+      !best || Number(offer.output_amount) > Number(best.output_amount) ? offer : best
+    ), null)?.provider
   return (
     <div id="provider-results" role="tabpanel">
       <div className="table-wrap">
         <table>
           <thead><tr><th>Furnizor</th><th>Curs efectiv</th><th>Primești</th><th>Diferență față de BNR</th><th>Stare</th></tr></thead>
           <tbody>
-            {offers.map((offer, index) => {
+            {offers.map((offer) => {
               const difference = Number(offer.difference_from_bnr_ron)
-              const isBest = offers.length > 1 && index === 0
-              return <tr key={offer.provider} className={isBest ? 'best' : ''}>
-                <td><div className="provider"><b>{offer.provider_name}</b>{showCategories && <ProviderCategoryLabel category={offer.category} />}{isBest && <span className="best-label">Cea mai bună ofertă disponibilă</span>}<OfferTypeLabel offer={offer} /><LocationLabel offer={offer} /></div></td>
+              const isAvailable = offer.active_now && offer.request_eligible
+              const isBest = offers.length > 1 && offer.provider === bestProvider
+              return <tr key={offer.provider} className={`${isBest ? 'best' : ''} ${!isAvailable ? 'offer-unavailable' : ''}`}>
+                <td><div className="provider"><b>{offer.provider_name}</b>{showCategories && <ProviderCategoryLabel category={offer.category} />}{isBest && <span className="best-label">{isAvailable ? 'Cea mai bună ofertă disponibilă' : 'Cel mai bun curs · indisponibil acum'}</span>}<OfferTypeLabel offer={offer} /><LocationLabel offer={offer} /></div></td>
                 <td>{number(offer.effective_rate, 4, 4)} <small>RON</small></td>
                 <td className="received">{money(offer.output_amount, outputCurrency)}</td>
                 <td className={difference < 0 ? 'negative' : 'positive'}>{difference > 0 ? '+' : ''}{money(offer.difference_from_bnr_ron, 'RON')}<small>{number(offer.difference_percent, 2, 2)}%</small></td>
-                <td><a href={offer.source_url} target="_blank" rel="noreferrer" className={offer.stale ? 'stale' : 'fresh'}>{offer.stale ? 'Expirat' : 'Actualizat'}<small>{relativeTime(offer.fetched_at)}</small></a>{offer.provider === 'xtb' && <small className="fee">taxă {number(offer.fee_percent, 1, 1)}%</small>}</td>
+                <td><a href={offer.source_url} target="_blank" rel="noreferrer" className={!isAvailable ? 'unavailable' : offer.stale ? 'stale' : 'fresh'}>{!offer.request_eligible ? 'Suma neeligibilă' : !offer.active_now ? 'Indisponibil acum' : offer.stale ? 'Expirat' : 'Actualizat'}<small>{isAvailable ? relativeTime(offer.fetched_at) : 'vezi condițiile'}</small></a>{offer.provider === 'xtb' && <small className="fee">taxă {number(offer.fee_percent, 1, 1)}%</small>}</td>
               </tr>
             })}
             {informationNotices.map((notice) => <InformationRow key={notice.provider} notice={notice} showCategory={showCategories} />)}
@@ -473,7 +539,7 @@ function OffersTable({
         </table>
       </div>
       <div className="offers-mobile">
-        {offers.map((offer, index) => <OfferCard key={offer.provider} offer={offer} isBest={offers.length > 1 && index === 0} outputCurrency={outputCurrency} showCategory={showCategories} />)}
+        {offers.map((offer) => <OfferCard key={offer.provider} offer={offer} isBest={offers.length > 1 && offer.provider === bestProvider} outputCurrency={outputCurrency} showCategory={showCategories} />)}
         {informationNotices.map((notice) => <InformationCard key={notice.provider} notice={notice} showCategory={showCategories} />)}
       </div>
     </div>
@@ -522,6 +588,8 @@ function InformationCard({ notice, showCategory }: { notice: ProviderNotice; sho
 
 function OfferTypeLabel({ offer }: { offer: Offer }) {
   if (offer.offer_type === 'cash') return <small>Schimb cu numerar</small>
+  if (offer.offer_type === 'preferential') return <small>Curs preferențial activat</small>
+  if (offer.offer_type === 'special') return <small>Ofertă specială activată</small>
   if (offer.indicative) return <small>Estimare indicativă</small>
   return null
 }
@@ -529,19 +597,20 @@ function OfferTypeLabel({ offer }: { offer: Offer }) {
 function OfferCard({ offer, isBest, outputCurrency, showCategory }: { offer: Offer; isBest: boolean; outputCurrency: string; showCategory: boolean }) {
   const difference = Number(offer.difference_from_bnr_ron)
   const differenceClass = difference < 0 ? 'negative' : 'positive'
+  const isAvailable = offer.active_now && offer.request_eligible
 
-  return <article className={`offer-card ${isBest ? 'best' : ''}`}>
+  return <article className={`offer-card ${isBest ? 'best' : ''} ${!isAvailable ? 'offer-unavailable' : ''}`}>
     <div className="offer-card-top">
       <div className="provider">
         <b>{offer.provider_name}</b>
         {showCategory && <ProviderCategoryLabel category={offer.category} />}
-        {isBest && <span className="best-label">Cea mai bună ofertă disponibilă</span>}
+        {isBest && <span className="best-label">{isAvailable ? 'Cea mai bună ofertă disponibilă' : 'Cel mai bun curs · indisponibil acum'}</span>}
         <OfferTypeLabel offer={offer} />
         <LocationLabel offer={offer} />
       </div>
-      <a href={offer.source_url} target="_blank" rel="noreferrer" className={`offer-status ${offer.stale ? 'stale' : 'fresh'}`}>
-        {offer.stale ? 'Expirat' : 'Actualizat'}
-        <small>{relativeTime(offer.fetched_at)}</small>
+      <a href={offer.source_url} target="_blank" rel="noreferrer" className={`offer-status ${!isAvailable ? 'unavailable' : offer.stale ? 'stale' : 'fresh'}`}>
+        {!offer.request_eligible ? 'Suma neeligibilă' : !offer.active_now ? 'Indisponibil acum' : offer.stale ? 'Expirat' : 'Actualizat'}
+        <small>{isAvailable ? relativeTime(offer.fetched_at) : 'vezi condițiile'}</small>
       </a>
     </div>
     <div className="offer-card-results">

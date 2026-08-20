@@ -36,3 +36,18 @@ func TestExtractAccountRatesReadsColumnarAccountTable(t *testing.T) {
 		t.Fatalf("unexpected CHF buy rate: %s", got)
 	}
 }
+
+func TestExtractSectionAccountRatesReadsBRDYouInsteadOfStandard(t *testing.T) {
+	document := `<div id="tabAccountExchangeRates"><div><p class="heading">Cod valută</p><p>EUR</p><p>USD</p><p>GBP</p><p>CHF</p></div><div><p class="heading">Cump. BRD (RON)</p><p>5.1000</p><p>4.4000</p><p>6.0000</p><p>5.3000</p></div><div><p class="heading">Vânz. BRD (RON)</p><p>5.3000</p><p>4.6000</p><p>6.2000</p><p>5.5000</p></div></div>
+<div id="tabExchangeYou"><div><p class="heading">Cod valută</p><p>EUR</p><p>USD</p><p>GBP</p><p>CHF</p></div><div><p class="heading">Cump. BRD (RON)</p><p>5.2100</p><p>4.4000</p><p>6.0000</p><p>5.3000</p></div><div><p class="heading">Vânz. BRD (RON)</p><p>5.2700</p><p>4.6000</p><p>6.2000</p><p>5.5000</p></div></div><div id="tabExchangeOffice">`
+	quotes, err := ExtractSectionAccountRates(document, "tabExchangeYou")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := quotes["EUR"].Buy.StringFixed(4); got != "5.2100" {
+		t.Fatalf("expected YOU EUR buy rate 5.2100, got %s", got)
+	}
+	if got := quotes["EUR"].Sell.StringFixed(4); got != "5.2700" {
+		t.Fatalf("expected YOU EUR sell rate 5.2700, got %s", got)
+	}
+}

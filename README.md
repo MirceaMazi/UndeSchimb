@@ -20,8 +20,8 @@ Poți copia `.env.example` în `.env` pentru a declara zile suplimentare fără 
 - `GET /api/v1/history?provider=bcr&currency=EUR&side=sell&period=30`
 - `GET /healthz`
 
-Ratele BNR sunt un reper informativ, nu o ofertă executabilă. XTB și Revolut sunt marcate ca estimative: aplicația colectează cotațiile publice Standard și explică separat taxele și limitele care pot modifica rezultatul executabil. TradeVille este prezentat informativ deoarece cotația exactă trebuie confirmată în platformă; nu este fabricată o valoare pentru clasament.
+Ratele BNR sunt un reper informativ, nu o ofertă executabilă. XTB și Revolut sunt marcate ca estimative: aplicația colectează cotațiile publice Standard și explică separat taxele și limitele care pot modifica rezultatul executabil. Pentru EUR/RON, TradeVille este estimat transparent în jurul BNR cu jumătate din spread-ul maxim publicat de 50 pips pe fiecare sens; cotația executabilă trebuie confirmată în platformă.
 
 Pentru numerar sunt colectate Tavex și Luxor București. Interfața arată explicit politica locațiilor: Tavex publică același curs pentru toate birourile, iar Luxor publică valori diferite pentru București și Arad. Cursul Luxor intră în clasament numai când suma depășește pragul oficial de 500 EUR sau echivalent.
 
-Cursul avantajos ING și Raiffeisen Smart Hour apar în carduri separate, împreună cu condițiile de eligibilitate. Smart Hour intră într-un calcul numeric numai pentru EUR, în intervalul activ și în limita zilnică publicată; limita lunară trebuie verificată de utilizator.
+Cursurile ING avantajos, Raiffeisen Smart Hour și BRD YOU au comutatoare explicite. Ofertele inactive pot fi previzualizate, dar sunt marcate ca indisponibile și nu primesc eticheta de cea mai bună ofertă disponibilă. Beneficiile fără cotație publică — precum cursul preferențial BCR în George și cursul negociat BT — sunt explicate fără a inventa o valoare. Cursul digital CEC este deja inclus prin tabela sa publică de online banking.

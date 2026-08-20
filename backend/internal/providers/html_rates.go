@@ -18,11 +18,16 @@ type BankPageProvider struct {
 	id        string
 	url       string
 	markers   []string
+	sectionID string
 	client    *http.Client
 }
 
 func NewBankPageProvider(id, url string, markers []string, client *http.Client) *BankPageProvider {
 	return &BankPageProvider{id: id, url: url, markers: markers, client: client}
+}
+
+func NewSectionBankPageProvider(id, url, sectionID string, client *http.Client) *BankPageProvider {
+	return &BankPageProvider{id: id, url: url, sectionID: sectionID, client: client}
 }
 
 func (p *BankPageProvider) ID() string { return p.id }
@@ -46,7 +51,12 @@ func (p *BankPageProvider) Fetch(ctx context.Context) ([]domain.RateSnapshot, er
 	if err != nil {
 		return nil, err
 	}
-	quotes, err := ExtractAccountRates(string(payload), p.markers)
+	var quotes map[string]accountQuote
+	if p.sectionID != "" {
+		quotes, err = ExtractSectionAccountRates(string(payload), p.sectionID)
+	} else {
+		quotes, err = ExtractAccountRates(string(payload), p.markers)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("parse %s account rates: %w", p.id, err)
 	}
@@ -74,7 +84,7 @@ var numberPattern = regexp.MustCompile(`\b\d{1,2}[.,]\d{3,6}\b`)
 // account/online section. Romanian bank pages label these columns Cumpărare then
 // Vânzare, so the result is normalized into provider buy/sell terminology.
 func ExtractAccountRates(document string, markers []string) (map[string]accountQuote, error) {
-	if quotes, found := extractColumnarAccountRates(document); found {
+	if quotes, found := extractColumnarAccountRates(accountSection(document)); found {
 		return quotes, nil
 	}
 	plainText := normalizeHTML(document)
@@ -109,11 +119,23 @@ func ExtractAccountRates(document string, markers []string) (map[string]accountQ
 	return quotes, nil
 }
 
+// ExtractSectionAccountRates parses a named public rate tab. BRD exposes its
+// standard account and preferential YOU quotes as separate columnar sections.
+func ExtractSectionAccountRates(document, sectionID string) (map[string]accountQuote, error) {
+	section := sectionByID(document, sectionID)
+	if section == "" {
+		return nil, fmt.Errorf("section %s is missing", sectionID)
+	}
+	if quotes, found := extractColumnarAccountRates(section); found {
+		return quotes, nil
+	}
+	return nil, fmt.Errorf("section %s does not contain four valid quotes", sectionID)
+}
+
 // Some banks publish their account table as parallel currency, buy, and sell
 // columns instead of rows (notably BRD). Parse that structure before using the
 // text-table fallback, so the NBR column is never mistaken for a bank quote.
-func extractColumnarAccountRates(document string) (map[string]accountQuote, bool) {
-	section := accountSection(document)
+func extractColumnarAccountRates(section string) (map[string]accountQuote, bool) {
 	codesColumn, foundCodes := columnByHeading(section, "cod valut")
 	buyColumn, foundBuy := columnByHeading(section, "cump")
 	sellColumn, foundSell := columnByHeading(section, "vânz", "vanz")
@@ -143,10 +165,18 @@ func extractColumnarAccountRates(document string) (map[string]accountQuote, bool
 }
 
 func accountSection(document string) string {
+	section := sectionByID(document, "tabAccountExchangeRates")
+	if section != "" {
+		return section
+	}
+	return document
+}
+
+func sectionByID(document, sectionID string) string {
 	lower := strings.ToLower(document)
-	start := strings.Index(lower, `id="tabaccountexchangerates"`)
+	start := strings.Index(lower, `id="`+strings.ToLower(sectionID)+`"`)
 	if start < 0 {
-		return document
+		return ""
 	}
 	endOffset := strings.Index(lower[start+1:], `id="tab`)
 	if endOffset < 0 {

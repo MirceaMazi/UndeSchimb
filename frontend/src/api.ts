@@ -18,6 +18,8 @@ export async function getComparison(from: string, to: string, amount: string) {
     ...comparison,
     offers: (comparison.offers ?? []).map((offer) => ({
       ...offer,
+      active_now: offer.active_now ?? true,
+      request_eligible: offer.request_eligible ?? true,
       conditions: offer.conditions ?? [],
       location_policy: offer.location_policy ?? 'not_applicable',
       location_label: offer.location_label ?? '',

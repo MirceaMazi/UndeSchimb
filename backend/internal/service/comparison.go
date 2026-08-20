@@ -67,6 +67,8 @@ type Offer struct {
 	Stale                  bool            `json:"stale"`
 	Indicative             bool            `json:"indicative"`
 	Conditional            bool            `json:"conditional"`
+	ActiveNow              bool            `json:"active_now"`
+	RequestEligible        bool            `json:"request_eligible"`
 	Conditions             []string        `json:"conditions"`
 	LocationPolicy         string          `json:"location_policy"`
 	LocationLabel          string          `json:"location_label"`
@@ -87,7 +89,7 @@ type ProviderNotice struct {
 }
 
 var comparableProviders = []string{
-	"banca_transilvania", "bcr", "brd", "ing", "ing_preferential",
+	"banca_transilvania", "bcr", "brd", "brd_you", "ing", "ing_preferential",
 	"raiffeisen", "cec", "xtb", "revolut", "tavex", "luxor_bucharest",
 }
 
@@ -149,6 +151,9 @@ func (s *ComparisonService) Compare(ctx context.Context, request ComparisonReque
 		MissingSources:  make([]string, 0, len(comparableProviders)),
 	}
 	for _, provider := range comparableProviders {
+		if provider == "brd_you" && currency != "EUR" {
+			continue
+		}
 		snapshot, found := byProvider[provider]
 		if !found {
 			response.MissingSources = append(response.MissingSources, provider)
@@ -176,20 +181,25 @@ func (s *ComparisonService) Compare(ctx context.Context, request ComparisonReque
 			DifferencePercent: percentage, FeePercent: snapshot.FeePercent, SourceURL: snapshot.SourceURL,
 			FetchedAt: snapshot.FetchedAt, EffectiveAt: snapshot.EffectiveAt,
 			Stale: s.now().UTC().Sub(snapshot.FetchedAt) > staleAfter, Indicative: provider == "xtb" || provider == "revolut",
-			Conditional: conditional, Conditions: conditions, LocationPolicy: locationPolicy,
+			Conditional: conditional, ActiveNow: true, RequestEligible: true,
+			Conditions: conditions, LocationPolicy: locationPolicy,
 			LocationLabel: locationLabel, LocationNote: locationNote,
 		})
 	}
+	tradevilleNotice, tradevilleOffer := s.tradevilleEstimate(request, currency, bnr, bnrOutput)
 	response.ProviderNotices = append(response.ProviderNotices,
-		ingPreferentialNotice(), tradevilleNotice(currency), revolutNotice(),
+		ingPreferentialNotice(), brdYouNotice(currency), tradevilleNotice, revolutNotice(),
+		bancaTransilvaniaNegotiatedNotice(currency, request, bnr, eurBNR),
+		bcrPreferentialNotice(currency), cecDigitalNotice(currency),
 		tavexNotice(request, bnr), luxorNotice(luxorEligible, requestEURValue),
 	)
+	if tradevilleOffer != nil {
+		response.Offers = append(response.Offers, *tradevilleOffer)
+	}
 	if currency == "EUR" {
 		notice, specialOffer := s.raiffeisenSmartHour(request, bnr, bnrOutput)
 		response.ProviderNotices = append(response.ProviderNotices, notice)
-		if specialOffer != nil {
-			response.Offers = append(response.Offers, *specialOffer)
-		}
+		response.Offers = append(response.Offers, *specialOffer)
 	}
 	sort.Slice(response.Offers, func(i, j int) bool {
 		return response.Offers[i].OutputAmount.GreaterThan(response.Offers[j].OutputAmount)
@@ -205,7 +215,12 @@ func offerMetadata(provider string) (category, offerType string, conditional boo
 		return category, "preferential", true, []string{
 			"ING Go cu venit recurent și ING More: în limita a 10.000 RON pe lună",
 			"ING Extra: curs avantajos indiferent de sumă",
-			"Pentru sume mari poate exista o cotație personalizată în Home'Bank",
+			"Peste 20.000 EUR și peste 50.000 EUR există niveluri mai bune în Home'Bank, indiferent de pachet",
+		}
+	case "brd_you":
+		return category, "preferential", true, []string{
+			"Curs preferențial EUR ↔ RON publicat separat pentru aplicația YOU BRD",
+			"Disponibil 24/7 pentru utilizatorii YOU BRD",
 		}
 	case "xtb":
 		return category, "indicative", true, []string{
@@ -301,20 +316,121 @@ func luxorNotice(eligible bool, requestEURValue decimal.Decimal) ProviderNotice 
 	}
 }
 
-func tradevilleNotice(currency string) ProviderNotice {
-	description := "TradeVille nu publică o cotație numerică înainte de autentificare. Pentru EUR–RON, conversiile din intervalul 09:00–16:00 folosesc cursul unei bănci partenere cu spread sub 50 pips."
-	conditions := []string{
-		"Cotația exactă trebuie verificată în platforma TradeVille",
-		"TradeVille declară că nu percepe propriul comision de conversie",
-	}
+func (s *ComparisonService) tradevilleEstimate(request ComparisonRequest, currency string, bnr *domain.RateSnapshot, bnrOutput decimal.Decimal) (ProviderNotice, *Offer) {
+	sourceURL := "https://tradeville.ro/costuri"
 	if currency != "EUR" {
-		description = "Pentru alte valute decât EUR, TradeVille folosește bănci corespondente; acestea pot aplica propriile comisioane și nu există o cotație publică de comparat."
-		conditions = []string{"Cotația și eventualele comisioane trebuie verificate în platformă"}
+		return ProviderNotice{
+			Provider: "tradeville", ProviderName: domain.ProviderNames["tradeville"], Category: domain.CategoryBrokers,
+			Kind: "quote_required", Title: "Cotație disponibilă în platformă",
+			Description: "Pentru alte valute decât EUR, TradeVille folosește bănci corespondente; acestea pot aplica propriile comisioane și nu există o cotație publică de comparat.",
+			SourceURL:   sourceURL, ActiveNow: false, RequestEligible: false,
+			Conditions: []string{"Cotația și eventualele comisioane trebuie verificate în platformă"},
+		}, nil
+	}
+
+	// TradeVille publishes a maximum total EUR/RON spread of 50 pips, but not
+	// the executable bid and ask. For a transparent estimate, use BNR as the
+	// assumed midpoint and distribute the maximum spread symmetrically.
+	halfSpread := decimal.RequireFromString("0.0025")
+	effectiveRate := bnr.BuyRate.Sub(halfSpread)
+	if request.From == "RON" {
+		effectiveRate = bnr.SellRate.Add(halfSpread)
+	}
+	output := request.Amount.Mul(effectiveRate)
+	if request.From == "RON" {
+		output = request.Amount.Div(effectiveRate)
+	}
+	difference := output.Sub(bnrOutput)
+	differenceInRON := difference
+	if request.From == "RON" {
+		differenceInRON = difference.Mul(bnr.SellRate)
+	}
+	percentage := decimal.Zero
+	if !bnrOutput.IsZero() {
+		percentage = difference.Div(bnrOutput).Mul(decimal.NewFromInt(100))
+	}
+	now := s.now().In(domain.BucharestLocation())
+	activeNow := now.Hour() >= 9 && now.Hour() < 16 && !domain.IsRomanianNonWorkingDay(now, s.extraHolidays)
+	conditions := []string{
+		"Doar EUR ↔ RON, pentru schimburile solicitate în intervalul 09:00–16:00",
+		"TradeVille publică un spread total sub 50 pips prin băncile partenere, nu un bid/ask live",
+		"Estimarea presupune BNR ca punct median și aplică 25 pips pe fiecare sens",
+		"Cotația executabilă trebuie confirmată în platforma TradeVille",
+	}
+	notice := ProviderNotice{
+		Provider: "tradeville", ProviderName: domain.ProviderNames["tradeville"], Category: domain.CategoryBrokers,
+		Kind: "conditional", Title: "Estimare BNR cu spread maxim de 50 pips",
+		Description: "Estimăm cotația TradeVille în jurul cursului BNR deoarece brokerul publică numai limita spread-ului. Rezultatul real poate fi diferit.",
+		SourceURL:   sourceURL, ActiveNow: activeNow, RequestEligible: true, Conditions: conditions,
+	}
+	offer := &Offer{
+		Provider: "tradeville", ProviderName: domain.ProviderNames["tradeville"], Category: domain.CategoryBrokers,
+		OfferType: "indicative", EffectiveRate: effectiveRate, OutputAmount: output,
+		DifferenceFromBNR: difference, DifferenceFromBNRInRON: differenceInRON, DifferencePercent: percentage,
+		FeePercent: decimal.Zero, SourceURL: sourceURL, FetchedAt: bnr.FetchedAt, EffectiveAt: bnr.EffectiveAt,
+		Stale: s.now().UTC().Sub(bnr.FetchedAt) > staleAfter, Indicative: true, Conditional: true,
+		ActiveNow: activeNow, RequestEligible: true, Conditions: conditions,
+		LocationPolicy: "not_applicable",
+	}
+	return notice, offer
+}
+
+func brdYouNotice(currency string) ProviderNotice {
+	eligible := currency == "EUR"
+	return ProviderNotice{
+		Provider: "brd_you", ProviderName: domain.ProviderNames["brd_you"], Category: domain.CategoryBanks,
+		Kind: "conditional", Title: "Curs preferențial EUR–RON în YOU BRD",
+		Description: "BRD publică separat cursul pentru schimburile din aplicația YOU. Pentru EUR–RON îl colectăm și îl poți include în clasament din comutatorul de oferte speciale.",
+		SourceURL:   "https://www.brd.ro/curs-valutar-si-dobanzi-de-referinta", ActiveNow: eligible, RequestEligible: eligible,
+		Conditions: []string{"Disponibil 24/7 în YOU BRD", "Oferta publicată separat este pentru EUR ↔ RON"},
+	}
+}
+
+func bancaTransilvaniaNegotiatedNotice(currency string, request ComparisonRequest, selectedBNR, eurBNR *domain.RateSnapshot) ProviderNotice {
+	foreignAmount := request.Amount
+	if request.From == "RON" {
+		foreignAmount = calculateOutput(request.From, request.Amount, selectedBNR)
+	}
+	eligible := false
+	threshold := "peste 100.000 de unități pentru EUR/USD/GBP ↔ RON"
+	if currency == "EUR" || currency == "USD" || currency == "GBP" {
+		eligible = foreignAmount.GreaterThan(decimal.NewFromInt(100000))
+	} else {
+		ronEquivalent := request.Amount
+		if request.From != "RON" {
+			ronEquivalent = request.Amount.Mul(selectedBNR.BuyRate)
+		}
+		eurEquivalent := ronEquivalent.Div(eurBNR.BuyRate)
+		eligible = eurEquivalent.GreaterThan(decimal.NewFromInt(25000))
+		threshold = "peste echivalentul a 25.000 EUR pentru celelalte perechi"
 	}
 	return ProviderNotice{
-		Provider: "tradeville", ProviderName: domain.ProviderNames["tradeville"], Category: domain.CategoryBrokers,
-		Kind: "quote_required", Title: "Cotație disponibilă în platformă", Description: description,
-		SourceURL: "https://tradeville.ro/costuri", ActiveNow: false, RequestEligible: true, Conditions: conditions,
+		Provider: "banca_transilvania_negotiated", ProviderName: domain.ProviderNames["banca_transilvania_negotiated"], Category: domain.CategoryBanks,
+		Kind: "conditional", Title: "Cotație negociată în BT Pay",
+		Description: "BT poate afișa o ofertă negociată separată pentru tranzacțiile mari. Cotația nu este publică, deci păstrăm cursul standard în clasament.",
+		SourceURL:   "https://www.bancatransilvania.ro/wallet-bt-pay/termeni-si-conditii-ro", ActiveNow: false, RequestEligible: eligible,
+		Conditions: []string{threshold, "Oferta exactă apare în BT Pay și poate fi acceptată sau refuzată", "Negocierea este disponibilă în zile bancare lucrătoare, între 09:00 și 17:30"},
+	}
+}
+
+func bcrPreferentialNotice(currency string) ProviderNotice {
+	eligible := currency == "EUR"
+	return ProviderNotice{
+		Provider: "bcr_preferential", ProviderName: domain.ProviderNames["bcr_preferential"], Category: domain.CategoryBanks,
+		Kind: "conditional", Title: "Curs preferențial EUR în George",
+		Description: "Programul de beneficii BCR include un curs preferențial EUR între conturile proprii. Valoarea exactă este afișată în George și nu poate fi calculată public.",
+		SourceURL:   "https://www.bcr.ro/content/dam/ro/bcr/www_bcr_ro/Campanii/2025/regulamente/Regulamentul-Programului-de-Beneficii.pdf", ActiveNow: false, RequestEligible: eligible,
+		Conditions: []string{"Nivel Advanced: până la 500 EUR pe lună", "Nivel Pro: până la 1.000 EUR pe lună", "Nivel Max/Max Invest: până la 2.000 EUR pe lună", "Nivelul și cotația trebuie confirmate în George"},
+	}
+}
+
+func cecDigitalNotice(currency string) ProviderNotice {
+	return ProviderNotice{
+		Provider: "cec_digital", ProviderName: domain.ProviderNames["cec_digital"], Category: domain.CategoryBanks,
+		Kind: "conditional", Title: "Cursul digital este deja inclus",
+		Description: "CEC publică pentru canalele la distanță un curs cu 0,0025 RON mai avantajos decât cursul de cont de la ghișeu. UndeSchimb colectează direct această tabelă online, deci avantajul este deja reflectat în rândul CEC Bank.",
+		SourceURL:   "https://cloud.cec.ro/presa/cec-bank-curs-de-schimb-preferential-pentru-schimburile-valutare-prin-operatiuni-la-distanta", ActiveNow: true, RequestEligible: currency == "EUR" || currency == "USD" || currency == "GBP" || currency == "CHF",
+		Conditions: []string{"Valabil pentru EUR, USD, GBP și CHF ↔ RON", "Se aplică prin Internet Banking, Mobile Banking și Phone Banking"},
 	}
 }
 
@@ -341,7 +457,7 @@ func ingPreferentialNotice() ProviderNotice {
 		Conditions: []string{
 			"ING Go cu venit recurent și ING More: în limita a 10.000 RON pe lună",
 			"ING Extra: curs avantajos indiferent de sumă",
-			"Pentru sume mari poate exista o ofertă personalizată în Home'Bank",
+			"Peste 20.000 EUR și peste 50.000 EUR există niveluri mai bune în Home'Bank, indiferent de pachet",
 		},
 	}
 }
@@ -366,9 +482,6 @@ func (s *ComparisonService) raiffeisenSmartHour(request ComparisonRequest, bnr *
 		SourceURL:   "https://www.raiffeisen.ro/ro/persoane-fizice/produsele-noastre/digital-banking/mobile-banking.html",
 		ActiveNow:   activeNow, RequestEligible: requestEligible, Conditions: conditions,
 	}
-	if !activeNow || !requestEligible {
-		return notice, nil
-	}
 	return notice, &Offer{
 		Provider: "raiffeisen_smart_hour", ProviderName: domain.ProviderNames["raiffeisen_smart_hour"],
 		Category: domain.CategoryBanks, OfferType: "special", EffectiveRate: rateForDirection(request.From, bnr),
@@ -376,7 +489,8 @@ func (s *ComparisonService) raiffeisenSmartHour(request ComparisonRequest, bnr *
 		DifferencePercent: decimal.Zero, FeePercent: decimal.Zero, SourceURL: notice.SourceURL,
 		FetchedAt: bnr.FetchedAt, EffectiveAt: bnr.EffectiveAt,
 		Stale: s.now().UTC().Sub(bnr.FetchedAt) > staleAfter, Indicative: false,
-		Conditional: true, Conditions: conditions,
+		Conditional: true, ActiveNow: activeNow, RequestEligible: requestEligible, Conditions: conditions,
+		LocationPolicy: "not_applicable",
 	}
 }
 
