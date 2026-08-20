@@ -1,7 +1,7 @@
 {
   "name": "UndeSchimb",
   "short_name": "UndeSchimb",
-  "description": "Compară cursurile valutare la bănci din România.",
+  "description": "Compară cursurile valutare la bănci, brokeri și case de schimb din România, raportate la BNR.",
   "lang": "ro-RO",
   "start_url": "/",
   "display": "standalone",

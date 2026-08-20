@@ -331,7 +331,8 @@ function App() {
         <h2 id="seo-title">Curs valutar: cum alegi oferta potrivită?</h2>
         <div className="seo-copy">
           <p>La un schimb valutar contează suma pe care o primești, nu doar cifra afișată ca „curs”. Pentru RON spre valută, un curs de vânzare mai mic înseamnă mai multă valută primită. Pentru valută spre RON, un curs de cumpărare mai mare înseamnă mai mulți lei primiți.</p>
-          <p>UndeSchimb separă cursurile standard de avantajele condiționate și grupează băncile, brokerii și casele de schimb. Astfel compari oferte similare și vezi exact ce condiții trebuie îndeplinite.</p>
+          <p>UndeSchimb separă cursurile standard de avantajele condiționate și grupează <a href="/curs-valutar-banci/">băncile</a>, <a href="/curs-valutar-brokeri/">brokerii și fintech-urile</a> și <a href="/case-schimb-valutar-bucuresti/">casele de schimb din București</a>. Astfel compari oferte similare și vezi exact ce condiții trebuie îndeplinite.</p>
+          <a className="text-link" href="/cel-mai-bun-curs-valutar/">Ghid: cum găsești cel mai bun curs pentru suma ta <span aria-hidden="true">→</span></a>
         </div>
         <div className="investment-guide">
           <div>
@@ -341,6 +342,7 @@ function App() {
           <div>
             <p>Dacă alimentezi în EUR sau USD un cont de investiții din venituri în RON, conversia valutară este unul dintre primele costuri pe care le suporți. Comparatorul te ajută să vezi câtă valută ajunge efectiv la tine printr-o bancă, un broker sau un serviciu fintech.</p>
             <p>Pentru investiții recurente, diferențele mici de curs și comisioanele repetate se pot aduna în timp. Compară rezultatul net, diferența față de BNR, programul ofertelor speciale și eventualele taxe înainte de fiecare transfer. Cotația executabilă din platforma aleasă rămâne cea care se aplică tranzacției.</p>
+            <a className="text-link" href="/schimb-valutar-pentru-investitii/">Ghid pentru conversii înainte de investiții <span aria-hidden="true">→</span></a>
             <small>Informațiile sunt orientative și nu reprezintă recomandări de investiții.</small>
           </div>
         </div>
@@ -408,7 +410,15 @@ function App() {
 
       <footer className="footer shell">
         <div className="brand"><span className="brand-mark">↔</span><span>Unde<span>Schimb</span></span></div>
-        <p>Informații orientative. Nu reprezintă recomandări financiare sau oferte de schimb.</p>
+        <div className="footer-copy">
+          <nav className="footer-links" aria-label="Informații despre UndeSchimb">
+            <a href="/despre/">Despre</a>
+            <a href="/metodologie/">Metodologie</a>
+            <a href="/transparenta/">Transparență</a>
+            <a href="/confidentialitate/">Confidențialitate</a>
+          </nav>
+          <p>Informații orientative. Nu reprezintă recomandări financiare sau oferte de schimb.</p>
+        </div>
       </footer>
     </main>
   )
