@@ -30,7 +30,7 @@ const CATEGORY_TABS: { id: ProviderTab; label: string; shortLabel: string }[] = 
   { id: 'all', label: 'Toate ofertele', shortLabel: 'Toate' },
   { id: 'banks', label: 'Bănci', shortLabel: 'Bănci' },
   { id: 'brokers', label: 'Brokeri & fintech', shortLabel: 'Brokeri' },
-  { id: 'physical_exchanges', label: 'Case de schimb', shortLabel: 'Schimb valutar' },
+  { id: 'physical_exchanges', label: 'Case de schimb', shortLabel: 'Schimb' },
 ]
 
 const HISTORY_FALLBACK = ['banca_transilvania', 'bcr', 'brd', 'brd_you', 'ing', 'ing_preferential', 'raiffeisen', 'cec', 'xtb', 'revolut', 'tavex', 'luxor_bucharest']
@@ -126,6 +126,8 @@ function App() {
   const [historyPeriod, setHistoryPeriod] = useState(30)
   const [history, setHistory] = useState<History | null>(null)
   const [activeCategory, setActiveCategory] = useState<ProviderTab>('all')
+  const [expandedBenefitProvider, setExpandedBenefitProvider] = useState<string | null>(null)
+  const [historyExpanded, setHistoryExpanded] = useState(false)
   const [enabledSpecialOffers, setEnabledSpecialOffers] = useState<Record<SpecialProviderID, boolean>>({
     ing_preferential: false,
     raiffeisen_smart_hour: false,
@@ -197,6 +199,11 @@ function App() {
   const benefitOffers = comparison?.offers.filter((offer) => activeCategory === 'all' || offer.category === activeCategory) ?? []
   const categoryNotices = comparison?.provider_notices?.filter((notice) => activeCategory === 'all' || notice.category === activeCategory) ?? []
   const informationNotices = categoryNotices.filter((notice) => notice.kind === 'quote_required' || notice.kind === 'ineligible')
+
+  const showProviderBenefit = (provider: string) => {
+    setExpandedBenefitProvider(provider)
+    window.setTimeout(() => document.getElementById(`benefit-${provider}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 0)
+  }
 
   return (
     <main>
@@ -296,8 +303,21 @@ function App() {
                   : 'Sunt clasate numai cursurile pentru care suma ta îndeplinește pragurile publicate.'}</p>
             </div>
           </div>
-          <OffersTable offers={rankedOffers} informationNotices={informationNotices} outputCurrency={comparison.to} showCategories={activeCategory === 'all'} />
-          {categoryNotices.length > 0 && <ProviderBenefits notices={categoryNotices} offers={benefitOffers} outputCurrency={comparison.to} />}
+          <OffersTable
+            offers={rankedOffers}
+            informationNotices={informationNotices}
+            benefitProviders={categoryNotices.map((notice) => notice.provider)}
+            outputCurrency={comparison.to}
+            showCategories={activeCategory === 'all'}
+            onShowConditions={showProviderBenefit}
+          />
+          {categoryNotices.length > 0 && <ProviderBenefits
+            notices={categoryNotices}
+            offers={benefitOffers}
+            outputCurrency={comparison.to}
+            expandedProvider={expandedBenefitProvider}
+            onExpandedProviderChange={setExpandedBenefitProvider}
+          />}
         </>}
         {comparison?.missing_sources?.length ? <p className="source-note">Nu sunt disponibile momentan: {comparison.missing_sources.map((id) => PROVIDER_NAMES[id] ?? id).join(', ')}. Păstrăm doar ultimul curs valid, marcat ca expirat; nu inventăm estimări.</p> : null}
       </section>
@@ -342,20 +362,22 @@ function App() {
         </div>
       </section>
 
-      <section className="history shell" id="istoric" aria-labelledby="history-title">
+      <section className={`history shell ${historyExpanded ? 'expanded' : ''}`} id="istoric" aria-labelledby="history-title">
         <div className="section-heading">
           <div>
             <p className="eyebrow">ISTORIC</p>
             <h2 id="history-title">Cum a evoluat cursul?</h2>
           </div>
-          <div className="history-controls">
-            <select value={historyProvider} onChange={(event) => setHistoryProvider(event.target.value)}>
-              {(providers.length ? providers : HISTORY_FALLBACK).map((provider) => <option value={provider} key={provider}>{PROVIDER_NAMES[provider]}</option>)}
-            </select>
-            {[7, 30, 90].map((days) => <button aria-pressed={historyPeriod === days} className={historyPeriod === days ? 'selected' : ''} type="button" key={days} onClick={() => setHistoryPeriod(days)}>{days}z</button>)}
-          </div>
+          <HistoryControls className="history-controls-desktop" providers={providers} provider={historyProvider} period={historyPeriod} onProviderChange={setHistoryProvider} onPeriodChange={setHistoryPeriod} />
         </div>
-        <HistoryChart history={history} providerName={PROVIDER_NAMES[historyProvider]} />
+        <button type="button" className="history-mobile-toggle" aria-expanded={historyExpanded} aria-controls="history-mobile-panel" onClick={() => setHistoryExpanded((current) => !current)}>
+          <span><b>Vezi evoluția cursului</b><small>{PROVIDER_NAMES[historyProvider]} · ultimele {historyPeriod} zile</small></span>
+          <span className="disclosure-icon" aria-hidden="true">⌄</span>
+        </button>
+        <div className="history-mobile-panel" id="history-mobile-panel">
+          <HistoryControls className="history-controls-mobile" providers={providers} provider={historyProvider} period={historyPeriod} onProviderChange={setHistoryProvider} onPeriodChange={setHistoryPeriod} />
+          <HistoryChart history={history} providerName={PROVIDER_NAMES[historyProvider]} />
+        </div>
       </section>
 
       <section className="faq shell" id="intrebari" aria-labelledby="faq-title">
@@ -416,35 +438,50 @@ function SpecialOfferToggles({
     { provider: 'raiffeisen_smart_hour', label: 'Raiffeisen Smart Hour', detail: currency === 'EUR' ? 'EUR/RON · 10:00–11:00' : 'Disponibil doar pentru EUR/RON', supported: currency === 'EUR' },
     { provider: 'brd_you', label: 'BRD YOU', detail: currency === 'EUR' ? 'EUR/RON · disponibil 24/7' : 'Disponibil doar pentru EUR/RON', supported: currency === 'EUR' },
   ]
+  const enabledCount = options.filter((option) => option.supported && enabled[option.provider]).length
+  const toggles = options.map((option) => <label className={`special-toggle ${!option.supported ? 'disabled' : ''}`} key={option.provider}>
+    <input
+      type="checkbox"
+      checked={option.supported && enabled[option.provider]}
+      disabled={!option.supported}
+      onChange={(event) => onChange(option.provider, event.target.checked)}
+    />
+    <span className="switch-track" aria-hidden="true"><span /></span>
+    <span className="special-toggle-copy"><b>{option.label}</b><small>{option.detail}</small></span>
+  </label>)
 
-  return <section className="special-offer-controls" aria-labelledby="special-offers-title">
-    <div className="special-offer-heading">
-      <div><p className="eyebrow">OFERTE SPECIALE</p><h3 id="special-offers-title">Include avantajele tale</h3></div>
+  return <>
+    <section className="special-offer-controls special-offers-desktop" aria-labelledby="special-offers-title">
+      <div className="special-offer-heading">
+        <div><p className="eyebrow">OFERTE SPECIALE</p><h3 id="special-offers-title">Include avantajele tale</h3></div>
+        <p>Activează numai ofertele ale căror condiții le îndeplinești.</p>
+      </div>
+      <div className="special-toggle-grid">{toggles}</div>
+    </section>
+    <details className="special-offer-controls special-offers-mobile">
+      <summary>
+        <span><b>Ofertele mele speciale</b><small>{enabledCount ? `${enabledCount} ${enabledCount === 1 ? 'ofertă activată' : 'oferte activate'}` : 'ING, Raiffeisen și BRD'}</small></span>
+        {enabledCount > 0 && <strong>{enabledCount}</strong>}
+        <span className="disclosure-icon" aria-hidden="true">⌄</span>
+      </summary>
       <p>Activează numai ofertele ale căror condiții le îndeplinești.</p>
-    </div>
-    <div className="special-toggle-grid">
-      {options.map((option) => <label className={`special-toggle ${!option.supported ? 'disabled' : ''}`} key={option.provider}>
-        <input
-          type="checkbox"
-          checked={option.supported && enabled[option.provider]}
-          disabled={!option.supported}
-          onChange={(event) => onChange(option.provider, event.target.checked)}
-        />
-        <span className="switch-track" aria-hidden="true"><span /></span>
-        <span className="special-toggle-copy"><b>{option.label}</b><small>{option.detail}</small></span>
-      </label>)}
-    </div>
-  </section>
+      <div className="special-toggle-grid">{toggles}</div>
+    </details>
+  </>
 }
 
 function ProviderBenefits({
   notices,
   offers,
   outputCurrency,
+  expandedProvider,
+  onExpandedProviderChange,
 }: {
   notices: ProviderNotice[]
   offers: Offer[]
   outputCurrency: string
+  expandedProvider: string | null
+  onExpandedProviderChange: (provider: string | null) => void
 }) {
   return <section className="provider-benefits" aria-labelledby="benefits-title">
     <div className="benefits-heading">
@@ -478,22 +515,30 @@ function ProviderBenefits({
                         : notice.request_eligible ? 'Verifică în aplicație' : 'Condiții neîndeplinite'
         const statusClass = notice.active_now && notice.request_eligible ? 'active' : notice.request_eligible ? 'conditional' : 'unavailable'
         const difference = offer ? Number(offer.difference_from_bnr_ron) : 0
+        const expanded = expandedProvider === notice.provider
 
-        return <article className="benefit-card" key={notice.provider}>
+        return <article className={`benefit-card ${expanded ? 'expanded' : ''}`} id={`benefit-${notice.provider}`} key={notice.provider}>
+          <button type="button" className="benefit-mobile-summary" aria-expanded={expanded} onClick={() => onExpandedProviderChange(expanded ? null : notice.provider)}>
+            <span><small>{notice.provider_name}</small><b>{notice.title}</b></span>
+            <span className={`benefit-status ${statusClass}`}>{status}</span>
+            <span className="disclosure-icon" aria-hidden="true">⌄</span>
+          </button>
           <div className="benefit-card-top">
             <div><small>{notice.provider_name}</small><h4>{notice.title}</h4></div>
             <span className={`benefit-status ${statusClass}`}>{status}</span>
           </div>
-          <p>{notice.description}</p>
-          {offer && <div className="benefit-result">
-            <span>{offer.active_now && offer.request_eligible ? 'Estimare pentru suma ta' : 'Previzualizare pentru suma ta'}</span>
-            <strong>{money(offer.output_amount, outputCurrency)}</strong>
-            <small className={difference < 0 ? 'negative' : 'positive'}>
-              {difference > 0 ? '+' : ''}{money(offer.difference_from_bnr_ron, 'RON')} față de BNR
-            </small>
-          </div>}
-          <ul>{(notice.conditions ?? []).map((condition) => <li key={condition}>{condition}</li>)}</ul>
-          <a href={notice.source_url} target="_blank" rel="noreferrer">Vezi condițiile oficiale <span aria-hidden="true">↗</span></a>
+          <div className="benefit-card-body">
+            <p>{notice.description}</p>
+            {offer && <div className="benefit-result">
+              <span>{offer.active_now && offer.request_eligible ? 'Estimare pentru suma ta' : 'Previzualizare pentru suma ta'}</span>
+              <strong>{money(offer.output_amount, outputCurrency)}</strong>
+              <small className={difference < 0 ? 'negative' : 'positive'}>
+                {difference > 0 ? '+' : ''}{money(offer.difference_from_bnr_ron, 'RON')} față de BNR
+              </small>
+            </div>}
+            <ul>{(notice.conditions ?? []).map((condition) => <li key={condition}>{condition}</li>)}</ul>
+            <a href={notice.source_url} target="_blank" rel="noreferrer">Vezi condițiile oficiale <span aria-hidden="true">↗</span></a>
+          </div>
         </article>
       })}
     </div>
@@ -503,19 +548,33 @@ function ProviderBenefits({
 function OffersTable({
   offers,
   informationNotices,
+  benefitProviders,
   outputCurrency,
   showCategories,
+  onShowConditions,
 }: {
   offers: Offer[]
   informationNotices: ProviderNotice[]
+  benefitProviders: string[]
   outputCurrency: string
   showCategories: boolean
+  onShowConditions: (provider: string) => void
 }) {
+  const [showAllMobile, setShowAllMobile] = useState(false)
+  const offersKey = offers.map((offer) => offer.provider).join('|')
+
+  useEffect(() => setShowAllMobile(false), [offersKey])
+
   if (!offers.length && !informationNotices.length) return <div className="message">Niciun curs nu este disponibil încă. Verificăm sursele la fiecare 15 minute.</div>
   const bestProvider = offers
     .reduce<Offer | null>((best, offer) => (
       !best || Number(offer.output_amount) > Number(best.output_amount) ? offer : best
     ), null)?.provider
+  const mobileLimit = 4
+  const totalMobileResults = offers.length + informationNotices.length
+  const visibleMobileOffers = showAllMobile ? offers : offers.slice(0, mobileLimit)
+  const remainingMobileSlots = Math.max(0, mobileLimit - visibleMobileOffers.length)
+  const visibleMobileNotices = showAllMobile ? informationNotices : informationNotices.slice(0, remainingMobileSlots)
   return (
     <div id="provider-results" role="tabpanel">
       <div className="table-wrap">
@@ -539,8 +598,21 @@ function OffersTable({
         </table>
       </div>
       <div className="offers-mobile">
-        {offers.map((offer) => <OfferCard key={offer.provider} offer={offer} isBest={offers.length > 1 && offer.provider === bestProvider} outputCurrency={outputCurrency} showCategory={showCategories} />)}
-        {informationNotices.map((notice) => <InformationCard key={notice.provider} notice={notice} showCategory={showCategories} />)}
+        {visibleMobileOffers.map((offer, index) => <OfferCard
+          key={offer.provider}
+          offer={offer}
+          rank={index + 1}
+          isBest={offers.length > 1 && offer.provider === bestProvider}
+          hasBenefit={benefitProviders.includes(offer.provider)}
+          outputCurrency={outputCurrency}
+          showCategory={showCategories}
+          onShowConditions={onShowConditions}
+        />)}
+        {visibleMobileNotices.map((notice) => <InformationCard key={notice.provider} notice={notice} showCategory={showCategories} />)}
+        {totalMobileResults > mobileLimit && <button type="button" className="show-all-offers" aria-expanded={showAllMobile} onClick={() => setShowAllMobile((current) => !current)}>
+          {showAllMobile ? 'Arată mai puține' : `Vezi toate ofertele (${totalMobileResults})`}
+          <span className="disclosure-icon" aria-hidden="true">⌄</span>
+        </button>}
       </div>
     </div>
   )
@@ -579,10 +651,16 @@ function InformationCard({ notice, showCategory }: { notice: ProviderNotice; sho
   return <article className={`offer-card information-card ${ineligible ? 'ineligible-card' : ''}`}>
     <div className="offer-card-top">
       <div className="provider"><b>{notice.provider_name}</b>{showCategory && <ProviderCategoryLabel category={notice.category} />}<small>{ineligible ? 'Prag neîndeplinit' : 'Cotație în aplicație'}</small></div>
-      <a href={notice.source_url} target="_blank" rel="noreferrer" className="offer-status verify-link">Sursă oficială<small>{ineligible ? 'vezi pragul' : 'curs dinamic'}</small></a>
+      <span className="offer-availability unavailable">{ineligible ? 'Neeligibil' : 'În aplicație'}</span>
     </div>
-    <p>{notice.description}</p>
-    <strong>{ineligible ? 'Oferta nu este inclusă în clasament' : 'Verifică suma exactă în platformă'}</strong>
+    <strong>{ineligible ? 'Suma nu îndeplinește pragul' : 'Verifică suma exactă în platformă'}</strong>
+    <details className="offer-details">
+      <summary><span>Detalii și sursă</span><span className="disclosure-icon" aria-hidden="true">⌄</span></summary>
+      <div className="offer-details-content">
+        <p>{notice.description}</p>
+        <a href={notice.source_url} target="_blank" rel="noreferrer" className="mobile-source-link">Sursă oficială <span aria-hidden="true">↗</span></a>
+      </div>
+    </details>
   </article>
 }
 
@@ -594,24 +672,36 @@ function OfferTypeLabel({ offer }: { offer: Offer }) {
   return null
 }
 
-function OfferCard({ offer, isBest, outputCurrency, showCategory }: { offer: Offer; isBest: boolean; outputCurrency: string; showCategory: boolean }) {
+function OfferCard({
+  offer,
+  rank,
+  isBest,
+  hasBenefit,
+  outputCurrency,
+  showCategory,
+  onShowConditions,
+}: {
+  offer: Offer
+  rank: number
+  isBest: boolean
+  hasBenefit: boolean
+  outputCurrency: string
+  showCategory: boolean
+  onShowConditions: (provider: string) => void
+}) {
   const difference = Number(offer.difference_from_bnr_ron)
   const differenceClass = difference < 0 ? 'negative' : 'positive'
   const isAvailable = offer.active_now && offer.request_eligible
+  const status = !offer.request_eligible ? 'Suma neeligibilă' : !offer.active_now ? 'Indisponibil acum' : offer.stale ? 'Expirat' : 'Actualizat'
 
   return <article className={`offer-card ${isBest ? 'best' : ''} ${!isAvailable ? 'offer-unavailable' : ''}`}>
     <div className="offer-card-top">
+      <span className="offer-rank" aria-label={`Locul ${rank}`}>#{rank}</span>
       <div className="provider">
         <b>{offer.provider_name}</b>
-        {showCategory && <ProviderCategoryLabel category={offer.category} />}
         {isBest && <span className="best-label">{isAvailable ? 'Cea mai bună ofertă disponibilă' : 'Cel mai bun curs · indisponibil acum'}</span>}
-        <OfferTypeLabel offer={offer} />
-        <LocationLabel offer={offer} />
       </div>
-      <a href={offer.source_url} target="_blank" rel="noreferrer" className={`offer-status ${!isAvailable ? 'unavailable' : offer.stale ? 'stale' : 'fresh'}`}>
-        {!offer.request_eligible ? 'Suma neeligibilă' : !offer.active_now ? 'Indisponibil acum' : offer.stale ? 'Expirat' : 'Actualizat'}
-        <small>{isAvailable ? relativeTime(offer.fetched_at) : 'vezi condițiile'}</small>
-      </a>
+      <span className={`offer-availability ${!isAvailable ? 'unavailable' : offer.stale ? 'stale' : 'fresh'}`}>{status}<small>{isAvailable ? relativeTime(offer.fetched_at) : 'verifică programul'}</small></span>
     </div>
     <div className="offer-card-results">
       <div>
@@ -624,12 +714,50 @@ function OfferCard({ offer, isBest, outputCurrency, showCategory }: { offer: Off
         <small>{number(offer.difference_percent, 2, 2)}%</small>
       </div>
     </div>
-    <div className="offer-card-rate">
-      <span>Curs efectiv <b>{number(offer.effective_rate, 4, 4)} RON</b></span>
-      {offer.provider === 'xtb' && <span className="fee">taxă {number(offer.fee_percent, 1, 1)}%</span>}
-    </div>
-    {(offer.conditions?.length ?? 0) > 0 && <ul className="offer-conditions">{offer.conditions.map((condition) => <li key={condition}>{condition}</li>)}</ul>}
+    <details className="offer-details">
+      <summary><span>Curs, sursă și condiții</span><span className="disclosure-icon" aria-hidden="true">⌄</span></summary>
+      <div className="offer-details-content">
+        <div className="offer-detail-chips">
+          {showCategory && <ProviderCategoryLabel category={offer.category} />}
+          <OfferTypeLabel offer={offer} />
+          <span className={`detail-status ${!isAvailable ? 'unavailable' : offer.stale ? 'stale' : 'fresh'}`}>{status}</span>
+        </div>
+        <div className="offer-card-rate">
+          <span>Curs efectiv <b>{number(offer.effective_rate, 4, 4)} RON</b></span>
+          {offer.provider === 'xtb' && <span className="fee">taxă {number(offer.fee_percent, 1, 1)}%</span>}
+        </div>
+        <LocationLabel offer={offer} />
+        {(offer.conditions?.length ?? 0) > 0 && <ul className="offer-conditions">{offer.conditions.map((condition) => <li key={condition}>{condition}</li>)}</ul>}
+        <div className="offer-detail-actions">
+          {hasBenefit && <button type="button" onClick={() => onShowConditions(offer.provider)}>Vezi condițiile</button>}
+          <a href={offer.source_url} target="_blank" rel="noreferrer" className="mobile-source-link">Sursă oficială <span aria-hidden="true">↗</span></a>
+        </div>
+      </div>
+    </details>
   </article>
+}
+
+function HistoryControls({
+  className,
+  providers,
+  provider,
+  period,
+  onProviderChange,
+  onPeriodChange,
+}: {
+  className: string
+  providers: string[]
+  provider: string
+  period: number
+  onProviderChange: (provider: string) => void
+  onPeriodChange: (period: number) => void
+}) {
+  return <div className={`history-controls ${className}`}>
+    <select aria-label="Furnizor pentru istoric" value={provider} onChange={(event) => onProviderChange(event.target.value)}>
+      {(providers.length ? providers : HISTORY_FALLBACK).map((providerID) => <option value={providerID} key={providerID}>{PROVIDER_NAMES[providerID]}</option>)}
+    </select>
+    {[7, 30, 90].map((days) => <button aria-pressed={period === days} className={period === days ? 'selected' : ''} type="button" key={days} onClick={() => onPeriodChange(days)}>{days}z</button>)}
+  </div>
 }
 
 function HistoryChart({ history, providerName }: { history: History | null; providerName: string }) {
