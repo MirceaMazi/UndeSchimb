@@ -1,5 +1,5 @@
 import { readdir, readFile, writeFile } from 'node:fs/promises'
-import { join, relative, resolve } from 'node:path'
+import { basename, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const frontendDirectory = resolve(fileURLToPath(new URL('..', import.meta.url)))
@@ -25,6 +25,11 @@ async function findHtmlPages(directory) {
   return nested.flat()
 }
 
+function isGoogleVerificationFile(path, html) {
+  const match = html.trim().match(/^google-site-verification:\s*(google[A-Za-z0-9_-]+\.html)$/i)
+  return match?.[1].toLowerCase() === basename(path).toLowerCase()
+}
+
 const beacon = [
   '  <script',
   '    type="module"',
@@ -40,6 +45,7 @@ if (!pages.length) {
 
 let injectedPages = 0
 let existingPages = 0
+let skippedVerificationFiles = 0
 
 for (const path of pages) {
   const html = await readFile(path, 'utf8')
@@ -55,6 +61,10 @@ for (const path of pages) {
   }
 
   if (!/<\/body>/i.test(html)) {
+    if (isGoogleVerificationFile(path, html)) {
+      skippedVerificationFiles += 1
+      continue
+    }
     throw new Error(`${relative(outputDirectory, path)} does not contain a closing body tag.`)
   }
 
@@ -64,5 +74,5 @@ for (const path of pages) {
 }
 
 console.log(
-  `Cloudflare Web Analytics: ${injectedPages} page(s) instrumented, ${existingPages} already instrumented.`,
+  `Cloudflare Web Analytics: ${injectedPages} page(s) instrumented, ${existingPages} already instrumented, ${skippedVerificationFiles} verification file(s) skipped.`,
 )
