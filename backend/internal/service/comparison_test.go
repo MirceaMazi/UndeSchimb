@@ -17,8 +17,14 @@ type fakeRateStore struct {
 func (s fakeRateStore) LatestRates(_ context.Context, _ string) ([]domain.RateSnapshot, error) {
 	return s.latest, nil
 }
-func (s fakeRateStore) History(_ context.Context, provider, _ string, _ time.Time) ([]domain.RateSnapshot, error) {
-	return s.history[provider], nil
+func (s fakeRateStore) History(_ context.Context, provider, currency string, since time.Time) ([]domain.RateSnapshot, error) {
+	var result []domain.RateSnapshot
+	for _, item := range s.history[provider] {
+		if item.Currency == currency && !item.FetchedAt.Before(since) {
+			result = append(result, item)
+		}
+	}
+	return result, nil
 }
 
 func snapshot(provider string, buy, sell string) domain.RateSnapshot {

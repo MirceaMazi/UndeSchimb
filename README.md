@@ -20,6 +20,8 @@ Poți copia `.env.example` în `.env` pentru a declara zile suplimentare fără 
 - `GET /api/v1/history?provider=bcr&currency=EUR&side=sell&period=30`
 - `GET /healthz`
 
+Istoricul acceptă perioade de 7, 30 sau 90 de zile și returnează ultima cotație colectată în fiecare zi calendaristică din București. Dacă lipsește colectarea BNR pentru o zi, observația furnizorului rămâne disponibilă, iar `bnr_rate` este `null`. Graficul nu înlocuiește aceste goluri cu zero sau cu un curs BNR mai vechi.
+
 Ratele BNR sunt un reper informativ, nu o ofertă executabilă. XTB și Revolut sunt marcate ca estimative: aplicația colectează cotațiile publice Standard și explică separat taxele și limitele care pot modifica rezultatul executabil. Pentru EUR/RON, TradeVille este estimat transparent în jurul BNR cu jumătate din spread-ul maxim publicat de 50 pips pe fiecare sens; cotația executabilă trebuie confirmată în platformă.
 
 Pentru numerar sunt colectate Tavex și Luxor București. Interfața arată explicit politica locațiilor: Tavex publică același curs pentru toate birourile, iar Luxor publică valori diferite pentru București și Arad. Cursul Luxor intră în clasament numai când suma depășește pragul oficial de 500 EUR sau echivalent.

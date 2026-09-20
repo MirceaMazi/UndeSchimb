@@ -58,5 +58,5 @@ export type History = {
   provider: string
   currency: string
   side: 'buy' | 'sell'
-  points: { date: string; provider_rate: DecimalLike; bnr_rate: DecimalLike }[]
+  points: { date: string; provider_rate: DecimalLike; bnr_rate: DecimalLike | null }[]
 }

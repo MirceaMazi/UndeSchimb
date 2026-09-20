@@ -509,9 +509,9 @@ func rateForDirection(from string, snapshot *domain.RateSnapshot) decimal.Decima
 }
 
 type HistoryPoint struct {
-	Date         string          `json:"date"`
-	ProviderRate decimal.Decimal `json:"provider_rate"`
-	BNRRate      decimal.Decimal `json:"bnr_rate"`
+	Date         string           `json:"date"`
+	ProviderRate decimal.Decimal  `json:"provider_rate"`
+	BNRRate      *decimal.Decimal `json:"bnr_rate"`
 }
 
 type HistoryResponse struct {
@@ -550,9 +550,13 @@ func (s *ComparisonService) History(ctx context.Context, provider, currency, sid
 	bnrByDate := latestByDate(bnrSnapshots, side)
 	points := make([]HistoryPoint, 0, len(providerByDate))
 	for date, providerRate := range providerByDate {
+		// A failed BNR collection must not hide valid provider observations.
+		// Keep missing benchmarks explicit; never substitute zero or an older rate.
+		point := HistoryPoint{Date: date, ProviderRate: providerRate}
 		if bnrRate, exists := bnrByDate[date]; exists {
-			points = append(points, HistoryPoint{Date: date, ProviderRate: providerRate, BNRRate: bnrRate})
+			point.BNRRate = &bnrRate
 		}
+		points = append(points, point)
 	}
 	sort.Slice(points, func(i, j int) bool { return points[i].Date < points[j].Date })
 	return HistoryResponse{Provider: provider, Currency: currency, Side: side, Points: points}, nil

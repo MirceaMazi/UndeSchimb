@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { getComparison, getHistory } from './api'
+import HistoryChart from './HistoryChart'
 import type { Comparison, History, Offer, ProviderCategory, ProviderNotice, ProviderTab } from './types'
 
 const CURRENCIES = [
@@ -129,6 +130,9 @@ function App() {
   const [historyProvider, setHistoryProvider] = useState('bcr')
   const [historyPeriod, setHistoryPeriod] = useState(30)
   const [history, setHistory] = useState<History | null>(null)
+  const [historyLoading, setHistoryLoading] = useState(true)
+  const [historyError, setHistoryError] = useState(false)
+  const [historyRetry, setHistoryRetry] = useState(0)
   const [activeCategory, setActiveCategory] = useState<ProviderTab>('all')
   const [expandedBenefitProvider, setExpandedBenefitProvider] = useState<string | null>(null)
   const [historyExpanded, setHistoryExpanded] = useState(false)
@@ -142,6 +146,7 @@ function App() {
   const to = direction === 'ron-to-fx' ? currency : 'RON'
   const historySide = direction === 'ron-to-fx' ? 'sell' : 'buy'
   const validAmount = Number(amount) > 0
+  const bnrStale = comparison && Date.now() - Date.parse(comparison.bnr_fetched_at) > 30 * 60_000
   const resultTitle = comparison
     ? `Pentru ${number(comparison.input_amount)} ${comparison.from}, primești`
     : loading ? 'Căutăm cele mai bune cursuri…' : `Pentru ${number(amount)} ${from}, primești`
@@ -184,10 +189,16 @@ function App() {
   }, [amount, from, to, validAmount])
 
   useEffect(() => {
-    getHistory(historyProvider, currency, historySide, historyPeriod)
-      .then(setHistory)
-      .catch(() => setHistory(null))
-  }, [currency, historyProvider, historyPeriod, historySide])
+    const controller = new AbortController()
+    setHistoryLoading(true)
+    setHistoryError(false)
+    setHistory(null)
+    getHistory(historyProvider, currency, historySide, historyPeriod, controller.signal)
+      .then((response) => { if (!controller.signal.aborted) setHistory(response) })
+      .catch(() => { if (!controller.signal.aborted) setHistoryError(true) })
+      .finally(() => { if (!controller.signal.aborted) setHistoryLoading(false) })
+    return () => controller.abort()
+  }, [currency, historyProvider, historyPeriod, historySide, historyRetry])
 
   const providers = useMemo(() => {
     const available = comparison?.offers
@@ -233,16 +244,16 @@ function App() {
 
       <section className="hero shell" id="sus">
         <div className="hero-copy">
-          <p className="eyebrow">Cursuri reale. Decizii mai bune.</p>
+          <p className="eyebrow">Comparator cursuri valutare</p>
           <h1>Unde îți rămân mai mulți bani după schimb?</h1>
-          <p className="lede">Compară cursurile băncilor, brokerilor și caselor de schimb și vezi instant diferența față de reperul BNR.</p>
+          <p className="lede">Compară cursurile valutare la bănci, brokeri și case de schimb. Vezi suma primită și diferența față de cursul BNR.</p>
           <div className="trust-line"><span>●</span> Actualizat automat la 15 minute <i /> <span>●</span> Fără cont, fără comisioane</div>
         </div>
         <div className="rate-card" aria-label="Reper BNR">
           <div className="rate-card-top"><span>REPER OFICIAL</span><strong>BNR</strong></div>
           <p>{currency} / RON</p>
           <b>{comparison ? number(comparison.bnr_rate, 4, 4) : '—'}</b>
-          <small>{comparison ? `publicat ${relativeTime(comparison.bnr_fetched_at)}` : 'se încarcă…'}</small>
+          <small className={bnrStale ? 'bnr-stale' : ''}>{comparison ? `${bnrStale ? 'Date expirate · ultima preluare' : 'Verificat'} ${relativeTime(comparison.bnr_fetched_at)}` : 'se încarcă…'}</small>
           <div className="rate-card-grid"><span>Nu este curs executabil</span><span>folosit doar ca reper</span></div>
         </div>
       </section>
@@ -288,6 +299,7 @@ function App() {
 
         {error && <div className="message error"><b>Nu am putut calcula comparația.</b> {error}</div>}
         {loading && !comparison && <div className="message">Se încarcă sursele disponibile…</div>}
+        {bnrStale && <div className="message error" role="status">Reperul BNR nu a fost actualizat recent. Diferențele față de BNR și ofertele bazate pe acest reper folosesc ultima valoare salvată.</div>}
         {comparison && <>
           <ProviderTabs activeCategory={activeCategory} onChange={setActiveCategory} />
           {(activeCategory === 'all' || activeCategory === 'banks') && <SpecialOfferToggles
@@ -328,11 +340,11 @@ function App() {
 
       <section className="seo-intro shell" aria-labelledby="seo-title">
         <p className="eyebrow">GHID DE SCHIMB VALUTAR</p>
-        <h2 id="seo-title">Curs valutar: cum alegi oferta potrivită?</h2>
+        <h2 id="seo-title">Curs valutar: comparație între oferte</h2>
         <div className="seo-copy">
           <p>La un schimb valutar contează suma pe care o primești, nu doar cifra afișată ca „curs”. Pentru RON spre valută, un curs de vânzare mai mic înseamnă mai multă valută primită. Pentru valută spre RON, un curs de cumpărare mai mare înseamnă mai mulți lei primiți.</p>
-          <p>UndeSchimb separă cursurile standard de avantajele condiționate și grupează <a href="/curs-valutar-banci/">băncile</a>, <a href="/curs-valutar-brokeri/">brokerii și fintech-urile</a> și <a href="/case-schimb-valutar-bucuresti/">casele de schimb din București</a>. Astfel compari oferte similare și vezi exact ce condiții trebuie îndeplinite.</p>
-          <a className="text-link" href="/cel-mai-bun-curs-valutar/">Ghid: cum găsești cel mai bun curs pentru suma ta <span aria-hidden="true">→</span></a>
+          <p>Comparatorul de cursuri valutare UndeSchimb grupează <a href="/curs-valutar-banci/">băncile</a>, <a href="/curs-valutar-brokeri/">brokerii și fintech-urile</a> și <a href="/case-schimb-valutar-bucuresti/">casele de schimb din București</a>. Compari EUR, USD, GBP și CHF în ambele sensuri față de RON, cu avantajele condiționate explicate separat.</p>
+          <a className="text-link" href="/cel-mai-bun-curs-valutar/">Ghid de comparație: cum alegi cel mai bun curs valutar <span aria-hidden="true">→</span></a>
         </div>
         <div className="investment-guide">
           <div>
@@ -393,7 +405,12 @@ function App() {
         </button>
         <div className="history-mobile-panel" id="history-mobile-panel">
           <HistoryControls className="history-controls-mobile" providers={providers} provider={historyProvider} period={historyPeriod} onProviderChange={setHistoryProvider} onPeriodChange={setHistoryPeriod} />
-          <HistoryChart history={history} providerName={PROVIDER_NAMES[historyProvider]} />
+          {historyLoading ? <div className="chart-empty" role="status">Se încarcă istoricul pentru ultimele {historyPeriod} zile…</div>
+            : historyError ? <div className="chart-empty" role="alert">
+              <p>Istoricul nu a putut fi încărcat. Serviciul poate fi temporar indisponibil.</p>
+              <button type="button" className="chart-retry" onClick={() => setHistoryRetry((current) => current + 1)}>Încearcă din nou</button>
+            </div>
+            : <HistoryChart history={history} providerName={PROVIDER_NAMES[historyProvider]} period={historyPeriod} />}
         </div>
       </section>
 
@@ -782,41 +799,6 @@ function HistoryControls({
       {(providers.length ? providers : HISTORY_FALLBACK).map((providerID) => <option value={providerID} key={providerID}>{PROVIDER_NAMES[providerID]}</option>)}
     </select>
     {[7, 30, 90].map((days) => <button aria-pressed={period === days} className={period === days ? 'selected' : ''} type="button" key={days} onClick={() => onPeriodChange(days)}>{days}z</button>)}
-  </div>
-}
-
-function HistoryChart({ history, providerName }: { history: History | null; providerName: string }) {
-  if (!history?.points.length) return <div className="chart-empty">Istoricul apare după ce sunt colectate suficiente date.</div>
-  if (history.points.length === 1) {
-    const item = history.points[0]
-    return <div className="chart-card chart-single">
-      <div className="legend"><span className="provider-dot" />{providerName}<span className="bnr-dot" />BNR <small>{history.side === 'sell' ? 'curs de vânzare' : 'curs de cumpărare'}</small></div>
-      <div className="single-quote">
-        <div><span>{providerName}</span><strong>{number(item.provider_rate, 4, 4)} RON</strong></div>
-        <div><span>BNR</span><strong>{number(item.bnr_rate, 4, 4)} RON</strong></div>
-      </div>
-	  <p>Există o singură cotație salvată pentru această selecție. Graficul se va completa pe măsură ce se acumulează date în zilele următoare.</p>
-    </div>
-  }
-  const values = history.points.flatMap((point) => [Number(point.provider_rate), Number(point.bnr_rate)])
-  const min = Math.min(...values)
-  const max = Math.max(...values)
-  const span = max - min || 0.01
-  const point = (value: number, index: number) => {
-    const x = history.points.length === 1 ? 320 : 18 + (index / (history.points.length - 1)) * 604
-    const y = 18 + ((max - value) / span) * 184
-    return `${x.toFixed(1)},${y.toFixed(1)}`
-  }
-  const providerPath = history.points.map((item, index) => point(Number(item.provider_rate), index)).join(' ')
-  const bnrPath = history.points.map((item, index) => point(Number(item.bnr_rate), index)).join(' ')
-  return <div className="chart-card">
-    <div className="legend"><span className="provider-dot" />{providerName}<span className="bnr-dot" />BNR <small>{history.side === 'sell' ? 'curs de vânzare' : 'curs de cumpărare'}</small></div>
-    <svg viewBox="0 0 640 220" role="img" aria-label={`Evoluția cursului ${providerName} și BNR`}>
-      {[18, 64, 110, 156, 202].map((y) => <line key={y} x1="18" x2="622" y1={y} y2={y} />)}
-      <polyline points={bnrPath} className="bnr-line" />
-      <polyline points={providerPath} className="provider-line" />
-    </svg>
-    <div className="chart-dates"><span>{new Date(history.points[0].date).toLocaleDateString('ro-RO', { day: '2-digit', month: 'short' })}</span><span>{new Date(history.points.at(-1)!.date).toLocaleDateString('ro-RO', { day: '2-digit', month: 'short' })}</span></div>
   </div>
 }
 

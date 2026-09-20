@@ -2,8 +2,8 @@ import type { Comparison, History } from './types'
 
 const baseURL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080/api/v1'
 
-async function request<T>(path: string): Promise<T> {
-  const response = await fetch(`${baseURL}${path}`)
+async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(`${baseURL}${path}`, { signal })
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) {
     throw new Error(payload.error ?? 'Nu am putut încărca datele.')
@@ -30,7 +30,7 @@ export async function getComparison(from: string, to: string, amount: string) {
   }
 }
 
-export function getHistory(provider: string, currency: string, side: 'buy' | 'sell', period: number) {
+export function getHistory(provider: string, currency: string, side: 'buy' | 'sell', period: number, signal?: AbortSignal) {
   const query = new URLSearchParams({ provider, currency, side, period: String(period) })
-  return request<History>(`/history?${query}`)
+  return request<History>(`/history?${query}`, signal)
 }
