@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -14,12 +15,35 @@ import (
 
 const BNRURL = "https://curs.bnr.ro/nbrfxrates.xml"
 
+const (
+	bnrFetchAttempts  = 3
+	bnrAttemptTimeout = 6 * time.Second
+	bnrRetryDelay     = 250 * time.Millisecond
+)
+
 type BNRProvider struct {
 	client *http.Client
 }
 
 func NewBNRProvider(client *http.Client) *BNRProvider {
-	return &BNRProvider{client: client}
+	bnrClient := *client
+	transport := client.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	if transport, ok := transport.(*http.Transport); ok {
+		bnrTransport := transport.Clone()
+		if bnrTransport.TLSClientConfig == nil {
+			bnrTransport.TLSClientConfig = &tls.Config{}
+		}
+		// Go 1.24's default hybrid key share makes ClientHello large enough to
+		// trigger handshake timeouts on some TLS servers or network appliances.
+		// Keep this compatibility setting local to BNR, with certificate
+		// verification and TLS version negotiation unchanged.
+		bnrTransport.TLSClientConfig.CurvePreferences = []tls.CurveID{tls.X25519, tls.CurveP256, tls.CurveP384}
+		bnrClient.Transport = bnrTransport
+	}
+	return &BNRProvider{client: &bnrClient}
 }
 
 func (p *BNRProvider) ID() string { return "bnr" }
@@ -40,23 +64,52 @@ type bnrRate struct {
 }
 
 func (p *BNRProvider) Fetch(ctx context.Context) ([]domain.RateSnapshot, error) {
+	for attempt := 1; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("fetch BNR XML: %w", err)
+		}
+		snapshots, retry, err := p.fetchAttempt(ctx)
+		if err == nil {
+			return snapshots, nil
+		}
+		if !retry || attempt == bnrFetchAttempts {
+			return nil, fmt.Errorf("fetch BNR XML (attempt %d/%d): %w", attempt, bnrFetchAttempts, err)
+		}
+		timer := time.NewTimer(bnrRetryDelay * time.Duration(attempt))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, fmt.Errorf("fetch BNR XML: %w", ctx.Err())
+		case <-timer.C:
+		}
+	}
+}
+
+func (p *BNRProvider) fetchAttempt(ctx context.Context) ([]domain.RateSnapshot, bool, error) {
+	// Leave room for all three attempts within the collector's 20-second limit.
+	ctx, cancel := context.WithTimeout(ctx, bnrAttemptTimeout)
+	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, BNRURL, nil)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
+	request.Header.Set("User-Agent", "UndeSchimb/1.0 (+https://github.com/undeschimb/undeschimb)")
+	request.Header.Set("Accept", "application/xml, text/xml;q=0.9")
 	response, err := p.client.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("fetch BNR XML: %w", err)
+		return nil, true, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("BNR XML returned status %d", response.StatusCode)
+		retry := response.StatusCode == http.StatusRequestTimeout || response.StatusCode >= http.StatusInternalServerError
+		return nil, retry, fmt.Errorf("BNR XML returned status %d", response.StatusCode)
 	}
 	payload, err := io.ReadAll(io.LimitReader(response.Body, 2<<20))
 	if err != nil {
-		return nil, err
+		return nil, true, fmt.Errorf("read BNR XML: %w", err)
 	}
-	return ParseBNRXML(payload, time.Now().UTC())
+	snapshots, err := ParseBNRXML(payload, time.Now().UTC())
+	return snapshots, false, err
 }
 
 func ParseBNRXML(payload []byte, fetchedAt time.Time) ([]domain.RateSnapshot, error) {
