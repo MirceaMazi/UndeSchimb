@@ -245,8 +245,8 @@ function App() {
       <section className="hero shell" id="sus">
         <div className="hero-copy">
           <p className="eyebrow">Comparator cursuri valutare</p>
-          <h1>Unde îți rămân mai mulți bani după schimb?</h1>
-          <p className="lede">Compară cursurile valutare la bănci, brokeri și case de schimb. Vezi suma primită și diferența față de cursul BNR.</p>
+          <h1>Unde schimb bani la cel mai bun curs valutar?</h1>
+          <p className="lede">Compară cursurile pentru EUR, USD, GBP și CHF la bănci, brokeri și case de schimb. UndeSchimb îți arată cât primești pentru suma ta.</p>
           <div className="trust-line"><span>●</span> Actualizat automat la 15 minute <i /> <span>●</span> Fără cont, fără comisioane</div>
         </div>
         <div className="rate-card" aria-label="Reper BNR">
