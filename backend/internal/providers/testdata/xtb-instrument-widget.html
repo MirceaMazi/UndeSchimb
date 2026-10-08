@@ -1,0 +1,21 @@
+<!-- Reduced current instrument-page layout; connection values are synthetic. -->
+<script>
+  const instrument = {
+    currency: "",
+    type: "forex",
+    ipaxAccountContext: window.xStreamData.accountContext,
+    ipaxInstrumentType: "cfd",
+    ipaxInstrumentId: "4305",
+    symbolXapi5: "1_EURRON_5",
+  }
+  createHeaderInstrumentChartApp(instrument, mobileAppLink);
+</script>
+<script>
+  window.websocketClientData = {
+    'url': 'wss://example.invalid/widget',
+    'endpoint': 'meta1',
+    'user': 'widget-user',
+    'accountId': 'meta1_widget-user',
+    'accessCode': 'test-access-code',
+  };
+</script>

@@ -1,6 +1,8 @@
 package providers
 
 import (
+	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -73,5 +75,68 @@ func TestParseCECRatesSkipsBNRReferenceColumn(t *testing.T) {
 	}
 	if got := rates[0].BuyRate.String(); got != "5.1956" {
 		t.Fatalf("expected CEC buy rate 5.1956, got %s", got)
+	}
+}
+
+func TestParseCECCurrentOnlineTableIgnoresEarlierEURText(t *testing.T) {
+	document, err := os.ReadFile("testdata/cec-online-rates.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fetchedAt := time.Date(2026, time.October, 9, 9, 0, 0, 0, time.UTC)
+	rates, err := ParseCECRates(string(document), fetchedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := map[string][2]string{
+		"EUR": {"5.2898", "5.3972"}, "USD": {"4.7026", "4.8455"},
+		"GBP": {"6.2059", "6.4111"}, "CHF": {"5.6531", "5.7977"},
+	}
+	if len(rates) != len(expected) {
+		t.Fatalf("expected four CEC quotes, got %d", len(rates))
+	}
+	for _, rate := range rates {
+		want := expected[rate.Currency]
+		if rate.BuyRate.String() != want[0] || rate.SellRate.String() != want[1] {
+			t.Errorf("%s: got %s/%s, want %s/%s", rate.Currency, rate.BuyRate, rate.SellRate, want[0], want[1])
+		}
+		if rate.SourceURL != CECSourceURL || !rate.FetchedAt.Equal(fetchedAt) {
+			t.Errorf("source and collection time changed: %#v", rate)
+		}
+	}
+}
+
+func TestParseCECRejectsMissingCellsInsteadOfReadingOtherColumnsOrRows(t *testing.T) {
+	payload, err := os.ReadFile("testdata/cec-online-rates.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := string(payload)
+	for name, broken := range map[string]string{
+		"empty buy":           strings.Replace(document, "<p>5,2898</p>", "<p></p>", 1),
+		"missing sell column": strings.Replace(document, `<div class="col no-border"><p>5,3972</p></div>`, "", 1),
+		"missing EUR row":     strings.ReplaceAll(document, `1 EUR</span>`, `1 CAD</span>`),
+		"reversed quote":      strings.Replace(document, "<p>5,2898</p>", "<p>9,9999</p>", 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if rates, err := ParseCECRates(broken, time.Now().UTC()); err == nil || len(rates) != 0 {
+				t.Fatalf("expected rejection without partial rates, got %d rates and %v", len(rates), err)
+			}
+		})
+	}
+}
+
+func TestParseCECUsesColumnHeadingsWhenOrderChanges(t *testing.T) {
+	document := `<table><tr><th>Valuta</th><th>Vinde</th><th>Curs BNR</th><th>Cumpara</th><th>Curs BCE</th></tr>
+		<tr><td>1 EUR</td><td>5,3972</td><td>5,3470</td><td>5,2898</td><td>5,3434</td></tr>
+		<tr><td>1 USD</td><td>4,8455</td><td>4,7814</td><td>4,7026</td><td>4,7769</td></tr>
+		<tr><td>1 GBP</td><td>6,4111</td><td>6,3058</td><td>6,2059</td><td>6,3086</td></tr>
+		<tr><td>1 CHF</td><td>5,7977</td><td>5,7304</td><td>5,6531</td><td>5,7296</td></tr></table>`
+	rates, err := ParseCECRates(document, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rates[0].BuyRate.String() != "5.2898" || rates[0].SellRate.String() != "5.3972" {
+		t.Fatalf("buy/sell headings were not respected: %#v", rates[0])
 	}
 }

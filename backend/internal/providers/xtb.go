@@ -139,7 +139,7 @@ func ExtractXTBPairMeta(document, sourceURL string) (xtbPairMeta, error) {
 		return xtbPairMeta{}, fmt.Errorf("XTB widget connection configuration is missing")
 	}
 	field := func(name string) string {
-		pattern := regexp.MustCompile(`(?m)["']` + regexp.QuoteMeta(name) + `["']\s*:\s*["']([^"']+)["']`)
+		pattern := regexp.MustCompile(`(?m)(?:^|[,{])\s*["']?` + regexp.QuoteMeta(name) + `["']?\s*:\s*["']([^"']+)["']`)
 		match := pattern.FindStringSubmatch(blockMatch[1])
 		if len(match) == 2 {
 			return match[1]
@@ -149,7 +149,10 @@ func ExtractXTBPairMeta(document, sourceURL string) (xtbPairMeta, error) {
 	connection := xtbWidgetConnection{
 		URL: field("url"), Endpoint: field("endpoint"), User: field("user"), AccountID: field("accountId"), AccessCode: field("accessCode"),
 	}
-	symbolPattern := regexp.MustCompile(`(?m)["']symbolXapi5["']\s*:\s*["']([^"']+)["']`)
+	// Current instrument pages use a JavaScript object with unquoted property
+	// names; older widgets used quoted names. Require a property boundary so
+	// similarly named fields cannot be mistaken for the instrument symbol.
+	symbolPattern := regexp.MustCompile(`(?m)(?:^|[,{])\s*["']?symbolXapi5["']?\s*:\s*["']([^"']+)["']`)
 	symbolMatch := symbolPattern.FindStringSubmatch(document)
 	if connection.URL == "" || connection.Endpoint == "" || connection.User == "" || connection.AccountID == "" || connection.AccessCode == "" || len(symbolMatch) != 2 {
 		return xtbPairMeta{}, fmt.Errorf("XTB page does not expose a complete widget quote configuration")

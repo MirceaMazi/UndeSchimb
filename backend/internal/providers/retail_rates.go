@@ -189,34 +189,6 @@ func (p *CECProvider) Fetch(ctx context.Context) ([]domain.RateSnapshot, error) 
 	return ParseCECRates(string(payload), time.Now().UTC())
 }
 
-// ParseCECRates reads CEC's public online-banking table where the numeric
-// columns are BNR reference, bank buy, bank sell, ECB reference and margin.
-func ParseCECRates(document string, fetchedAt time.Time) ([]domain.RateSnapshot, error) {
-	plainText := normalizeHTML(document)
-	snapshots := make([]domain.RateSnapshot, 0, 4)
-	for _, currency := range []string{"EUR", "USD", "GBP", "CHF"} {
-		position := currencyPosition(plainText, currency)
-		if position < 0 {
-			return nil, fmt.Errorf("CEC %s is missing", currency)
-		}
-		window := plainText[position:]
-		if len(window) > 300 {
-			window = window[:300]
-		}
-		values := numberPattern.FindAllString(window, 4)
-		if len(values) < 3 {
-			return nil, fmt.Errorf("CEC %s does not have reference/buy/sell values", currency)
-		}
-		buy, buyErr := parseRate(values[1])
-		sell, sellErr := parseRate(values[2])
-		if buyErr != nil || sellErr != nil || !validRetailQuote(buy, sell) {
-			return nil, fmt.Errorf("invalid CEC %s quote", currency)
-		}
-		snapshots = append(snapshots, retailSnapshot("cec", currency, buy, sell, CECSourceURL, fetchedAt, fetchedAt))
-	}
-	return requireFourRetailSnapshots("CEC", snapshots)
-}
-
 func fetchPublicPayload(ctx context.Context, client *http.Client, url, source string) ([]byte, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
