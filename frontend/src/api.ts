@@ -1,6 +1,7 @@
 import type { Comparison, History } from './types'
+import { normalizeComparison } from './comparison-data'
 
-const baseURL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080/api/v1'
+const baseURL = (import.meta.env.VITE_API_URL || '/api/v1').replace(/\/$/, '')
 
 async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`${baseURL}${path}`, { signal })
@@ -11,23 +12,9 @@ async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
   return payload as T
 }
 
-export async function getComparison(from: string, to: string, amount: string) {
+export async function getComparison(from: string, to: string, amount: string, signal?: AbortSignal) {
   const query = new URLSearchParams({ from, to, amount })
-  const comparison = await request<Comparison>(`/comparison?${query}`)
-  return {
-    ...comparison,
-    offers: (comparison.offers ?? []).map((offer) => ({
-      ...offer,
-      active_now: offer.active_now ?? true,
-      request_eligible: offer.request_eligible ?? true,
-      conditions: offer.conditions ?? [],
-      location_policy: offer.location_policy ?? 'not_applicable',
-      location_label: offer.location_label ?? '',
-      location_note: offer.location_note ?? '',
-    })),
-    provider_notices: (comparison.provider_notices ?? []).map((notice) => ({ ...notice, conditions: notice.conditions ?? [] })),
-    missing_sources: comparison.missing_sources ?? [],
-  }
+  return normalizeComparison(await request<Comparison>(`/comparison?${query}`, signal))
 }
 
 export function getHistory(provider: string, currency: string, side: 'buy' | 'sell', period: number, signal?: AbortSignal) {

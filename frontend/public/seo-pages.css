@@ -22,6 +22,41 @@ h2 { font-size:clamp(1.45rem,3vw,2.15rem); }
 .button { min-height:46px; display:inline-flex; align-items:center; justify-content:center; border:1px solid var(--green); border-radius:5px; padding:0 16px; background:var(--green); color:#fff; font-size:.82rem; font-weight:700; text-decoration:none; }
 .button.secondary { border-color:var(--line); background:var(--surface); color:var(--ink); }
 .content { padding:58px 0 80px; }
+.live-rates { padding-block:44px 12px; }
+.rates-intro,.rate-reference { color:var(--muted); line-height:1.65; }
+.rates-intro { max-width:760px; }
+.rate-scenario { margin-top:30px; padding:22px; border:1px solid var(--line); border-radius:8px; background:var(--surface); }
+.rate-scenario-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.rate-scenario-heading h3 { margin:0; font-size:1.35rem; }
+.rate-scenario-heading p { margin:8px 0 0; color:var(--muted); line-height:1.5; }
+.rate-scenario-heading .button { flex-shrink:0; }
+.rate-reference { font-size:.8rem; }
+.rate-table-scroll { max-width:100%; overflow-x:auto; border:1px solid var(--line); border-radius:5px; }
+.rate-table { width:100%; border-collapse:collapse; font-size:.82rem; line-height:1.5; }
+.rate-table caption { padding:12px; background:var(--wash); text-align:left; color:var(--muted); font-size:.75rem; }
+.rate-table th,.rate-table td { padding:14px 12px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+.rate-table thead th { background:var(--wash); font-size:.75rem; }
+.rate-table tbody th { min-width:175px; font-weight:400; }
+.rate-table tbody td { min-width:110px; }
+.rate-table tbody td:nth-child(3) { min-width:150px; }
+.rate-table tr:last-child > * { border-bottom:0; }
+.rate-table small { display:block; margin-top:5px; color:var(--muted); font-size:.72rem; }
+.rate-table a,.rate-conditions a { color:var(--green); text-underline-offset:3px; }
+.rate-table details { margin-top:7px; }
+.rate-table details ul { min-width:200px; }
+.rate-table ul,.rate-conditions ul { padding-left:20px; }
+.rate-state { display:block; margin-top:6px; color:var(--muted); font-size:.7rem; }
+.rate-warning { padding:14px; border:1px solid var(--gold); border-radius:5px; line-height:1.6; }
+.rate-conditions { margin-top:18px; color:var(--muted); font-size:.82rem; line-height:1.65; }
+.rate-conditions li + li { margin-top:10px; }
+.rate-conditions strong { color:var(--ink); }
+summary { cursor:pointer; }
+a:focus-visible,summary:focus-visible,.rate-table-scroll:focus-visible { outline:3px solid var(--green); outline-offset:3px; }
+.location-list { display:grid; gap:16px; margin:24px 0; }
+.location-list article { border:1px solid var(--line); border-radius:6px; padding:18px; }
+.location-list h3 { margin-top:0; }
+.location-list address { font-style:normal; line-height:1.6; }
+@media (max-width:640px) { .live-rates { padding-top:30px; }.rate-scenario { padding:14px; }.rate-scenario-heading { align-items:stretch; flex-direction:column; }.rate-scenario-heading .button { flex-basis:auto; }.rate-table th,.rate-table td { padding:12px 10px; } }
 .content-grid { display:grid; grid-template-columns:1.05fr .95fr; gap:70px; }
 .copy p { margin:0 0 18px; color:var(--muted); line-height:1.72; }
 .copy h2:not(:first-child),.copy h3 { margin:32px 0 13px; }

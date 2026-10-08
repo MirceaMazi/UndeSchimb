@@ -7,13 +7,15 @@
     "dev": "vite",
     "typecheck": "tsc --noEmit",
     "test:chart": "node --test scripts/history-chart.test.mjs",
+    "test:seo": "npm run build:server && node --test scripts/seo.test.mjs",
     "seo:check": "node scripts/check-seo.mjs",
     "build:client": "vite build",
     "build:server": "vite build --ssr src/entry-server.tsx --outDir dist-ssr",
     "prerender": "node scripts/prerender.mjs",
     "analytics:inject": "node scripts/inject-analytics.mjs",
     "build": "npm run typecheck && npm run seo:check && npm run build:client && npm run build:server && npm run prerender && npm run analytics:inject",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "node server/index.mjs",
+    "start": "node server/index.mjs"
   },
   "dependencies": {
     "react": "18.3.1",

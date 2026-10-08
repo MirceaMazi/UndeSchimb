@@ -1,21 +1,21 @@
 import { readFile, writeFile } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { loadEnv } from 'vite'
+import { createSnapshotCache } from '../server/snapshots.mjs'
+import { renderPage } from '../server/render-page.mjs'
 
-const scriptDirectory = dirname(fileURLToPath(import.meta.url))
-const frontendDirectory = resolve(scriptDirectory, '..')
-const templatePath = resolve(frontendDirectory, 'dist', 'index.html')
-const serverEntryPath = resolve(frontendDirectory, 'dist-ssr', 'entry-server.js')
+const frontendDirectory = fileURLToPath(new URL('..', import.meta.url))
+const renderer = await import(pathToFileURL(resolve(frontendDirectory, 'dist-ssr', 'entry-server.js')).href)
+const env = { ...loadEnv('production', frontendDirectory, ''), ...process.env }
+const apiURL = env.API_URL || env.VITE_API_URL
+const cache = apiURL && /^https?:\/\//.test(apiURL)
+  ? createSnapshotCache({ apiURL, normalize: renderer.normalizeComparison })
+  : { get: async () => ({ comparison: null, checkedAt: null, failed: true }) }
 
-const [{ render }, template] = await Promise.all([
-  import(pathToFileURL(serverEntryPath).href),
-  readFile(templatePath, 'utf8'),
-])
-
-const root = '<div id="root"></div>'
-if (!template.includes(root)) {
-  throw new Error('Nu am găsit elementul root în șablonul HTML.')
-}
-
-const prerendered = template.replace(root, `<div id="root">${render()}</div>`)
-await writeFile(templatePath, prerendered)
+await Promise.all(['/', ...Object.keys(renderer.landingPages)].map(async (pathname) => {
+  const templatePath = resolve(frontendDirectory, 'dist', pathname.slice(1), 'index.html')
+  const template = await readFile(templatePath, 'utf8')
+  await writeFile(templatePath, await renderPage({ template, pathname, cache, renderer }))
+}))
+console.log('Prerendered homepage and ' + Object.keys(renderer.landingPages).length + ' comparison pages. Runtime rendering refreshes their rates.')

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { getComparison, getHistory } from './api'
 import HistoryChart from './HistoryChart'
+import { ageComparison, isExpired } from './comparison-data'
 import type { Comparison, History, Offer, ProviderCategory, ProviderNotice, ProviderTab } from './types'
 
 const CURRENCIES = [
@@ -64,6 +65,18 @@ function initialDirection(): 'ron-to-fx' | 'fx-to-ron' {
   return new URLSearchParams(window.location.search).get('direction') === 'fx-to-ron' ? 'fx-to-ron' : 'ron-to-fx'
 }
 
+function initialAmount() {
+  if (typeof window === 'undefined') return '1000'
+  const amount = new URLSearchParams(window.location.search).get('amount') ?? ''
+  return /^\d+(?:\.\d{1,2})?$/.test(amount) && Number(amount) > 0 && Number(amount) <= 1e12 ? amount : '1000'
+}
+
+function initialCategory(): ProviderTab {
+  if (typeof window === 'undefined') return 'all'
+  const category = new URLSearchParams(window.location.search).get('category')
+  return CATEGORY_TABS.find((tab) => tab.id === category)?.id ?? 'all'
+}
+
 const CURRENCY_GUIDES = [
   { code: 'EUR', label: 'Curs EUR / RON', href: '/curs-eur-ron/' },
   { code: 'USD', label: 'Curs USD / RON', href: '/curs-usd-ron/' },
@@ -108,32 +121,35 @@ function money(value: string | number, currency: string) {
   }).format(Number(value))
 }
 
-function relativeTime(value: string) {
-  const seconds = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 1000))
-  if (seconds < 60) return 'chiar acum'
-  if (seconds < 3600) return `acum ${Math.floor(seconds / 60)} min`
-  return `acum ${Math.floor(seconds / 3600)} h`
+function collectedAt(value: string) {
+  return new Intl.DateTimeFormat('ro-RO', {
+    timeZone: 'Europe/Bucharest', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  }).format(new Date(value))
 }
 
 function orderOffers(offers: Offer[]) {
   return [...offers].sort((left, right) => Number(right.output_amount) - Number(left.output_amount))
 }
 
-function App() {
+export type AppProps = { initialComparison?: Comparison | null; initialTime?: number; initialError?: string | null }
+
+function App({ initialComparison = null, initialTime, initialError = null }: AppProps) {
   const [theme, setTheme] = useState<Theme>(initialTheme)
-  const [amount, setAmount] = useState('1000')
+  const [amount, setAmount] = useState(initialAmount)
   const [currency, setCurrency] = useState(initialCurrency)
   const [direction, setDirection] = useState<'ron-to-fx' | 'fx-to-ron'>(initialDirection)
-  const [comparison, setComparison] = useState<Comparison | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [storedComparison, setComparison] = useState<Comparison | null>(initialComparison)
+  const [now, setNow] = useState(initialTime ?? Date.now())
+  const comparison = useMemo(() => storedComparison ? ageComparison(storedComparison, now) : null, [storedComparison, now])
+  const [loading, setLoading] = useState(!initialComparison && !initialError)
+  const [error, setError] = useState<string | null>(initialError)
   const [historyProvider, setHistoryProvider] = useState('bcr')
   const [historyPeriod, setHistoryPeriod] = useState(30)
   const [history, setHistory] = useState<History | null>(null)
   const [historyLoading, setHistoryLoading] = useState(true)
   const [historyError, setHistoryError] = useState(false)
   const [historyRetry, setHistoryRetry] = useState(0)
-  const [activeCategory, setActiveCategory] = useState<ProviderTab>('all')
+  const [activeCategory, setActiveCategory] = useState<ProviderTab>(initialCategory)
   const [expandedBenefitProvider, setExpandedBenefitProvider] = useState<string | null>(null)
   const [historyExpanded, setHistoryExpanded] = useState(false)
   const [enabledSpecialOffers, setEnabledSpecialOffers] = useState<Record<SpecialProviderID, boolean>>({
@@ -146,10 +162,16 @@ function App() {
   const to = direction === 'ron-to-fx' ? currency : 'RON'
   const historySide = direction === 'ron-to-fx' ? 'sell' : 'buy'
   const validAmount = Number(amount) > 0
-  const bnrStale = comparison && Date.now() - Date.parse(comparison.bnr_fetched_at) > 30 * 60_000
+  const bnrStale = comparison && isExpired(comparison.bnr_fetched_at, now)
   const resultTitle = comparison
     ? `Pentru ${number(comparison.input_amount)} ${comparison.from}, primești`
     : loading ? 'Căutăm cele mai bune cursuri…' : `Pentru ${number(amount)} ${from}, primești`
+
+  useEffect(() => {
+    setNow(Date.now())
+    const interval = window.setInterval(() => setNow(Date.now()), 30_000)
+    return () => window.clearInterval(interval)
+  }, [])
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -168,9 +190,9 @@ function App() {
       return
     }
     const controller = new AbortController()
-    const timer = window.setTimeout(() => {
+    const refresh = () => {
       setLoading(true)
-      getComparison(from, to, amount)
+      getComparison(from, to, amount, controller.signal)
         .then((response) => {
           if (!controller.signal.aborted) {
             setComparison(response)
@@ -181,10 +203,13 @@ function App() {
         })
         .catch((reason: Error) => !controller.signal.aborted && setError(reason.message))
         .finally(() => !controller.signal.aborted && setLoading(false))
-    }, 250)
+    }
+    const timer = window.setTimeout(refresh, 250)
+    const interval = window.setInterval(refresh, 60_000)
     return () => {
       controller.abort()
       window.clearTimeout(timer)
+      window.clearInterval(interval)
     }
   }, [amount, from, to, validAmount])
 
@@ -245,7 +270,7 @@ function App() {
       <section className="hero shell" id="sus">
         <div className="hero-copy">
           <p className="eyebrow">Comparator cursuri valutare</p>
-          <h1>Unde schimb bani la cel mai bun curs valutar?</h1>
+          <h1>Compară cursurile valutare pentru suma ta</h1>
           <p className="lede">Compară cursurile pentru EUR, USD, GBP și CHF la bănci, brokeri și case de schimb. UndeSchimb îți arată cât primești pentru suma ta.</p>
           <div className="trust-line"><span>●</span> Actualizat automat la 15 minute <i /> <span>●</span> Fără cont, fără comisioane</div>
         </div>
@@ -253,7 +278,7 @@ function App() {
           <div className="rate-card-top"><span>REPER OFICIAL</span><strong>BNR</strong></div>
           <p>{currency} / RON</p>
           <b>{comparison ? number(comparison.bnr_rate, 4, 4) : '—'}</b>
-          <small className={bnrStale ? 'bnr-stale' : ''}>{comparison ? `${bnrStale ? 'Date expirate · ultima preluare' : 'Verificat'} ${relativeTime(comparison.bnr_fetched_at)}` : 'se încarcă…'}</small>
+          <small className={bnrStale ? 'bnr-stale' : ''}>{comparison ? `${bnrStale ? 'Date expirate · ultima preluare' : 'Verificat'} ${collectedAt(comparison.bnr_fetched_at)} · București` : 'se încarcă…'}</small>
           <div className="rate-card-grid"><span>Nu este curs executabil</span><span>folosit doar ca reper</span></div>
         </div>
       </section>
@@ -608,7 +633,7 @@ function OffersTable({
   useEffect(() => setShowAllMobile(false), [offersKey])
 
   if (!offers.length && !informationNotices.length) return <div className="message">Niciun curs nu este disponibil încă. Verificăm sursele la fiecare 15 minute.</div>
-  const bestProvider = offers
+  const bestProvider = offers.filter((offer) => offer.active_now && offer.request_eligible && !offer.stale && !offer.indicative)
     .reduce<Offer | null>((best, offer) => (
       !best || Number(offer.output_amount) > Number(best.output_amount) ? offer : best
     ), null)?.provider
@@ -632,7 +657,7 @@ function OffersTable({
                 <td>{number(offer.effective_rate, 4, 4)} <small>RON</small></td>
                 <td className="received">{money(offer.output_amount, outputCurrency)}</td>
                 <td className={difference < 0 ? 'negative' : 'positive'}>{difference > 0 ? '+' : ''}{money(offer.difference_from_bnr_ron, 'RON')}<small>{number(offer.difference_percent, 2, 2)}%</small></td>
-                <td><a href={offer.source_url} target="_blank" rel="noreferrer" className={!isAvailable ? 'unavailable' : offer.stale ? 'stale' : 'fresh'}>{!offer.request_eligible ? 'Suma neeligibilă' : !offer.active_now ? 'Indisponibil acum' : offer.stale ? 'Expirat' : 'Actualizat'}<small>{isAvailable ? relativeTime(offer.fetched_at) : 'vezi condițiile'}</small></a>{offer.provider === 'xtb' && <small className="fee">taxă {number(offer.fee_percent, 1, 1)}%</small>}</td>
+                <td><a href={offer.source_url} target="_blank" rel="noreferrer" className={!isAvailable ? 'unavailable' : offer.stale ? 'stale' : 'fresh'}>{!offer.request_eligible ? 'Suma neeligibilă' : !offer.active_now ? 'Indisponibil acum' : offer.stale ? 'Expirat' : 'Actualizat'}<small>{isAvailable ? collectedAt(offer.fetched_at) : 'vezi condițiile'}</small></a>{offer.provider === 'xtb' && <small className="fee">taxă {number(offer.fee_percent, 1, 1)}%</small>}</td>
               </tr>
             })}
             {informationNotices.map((notice) => <InformationRow key={notice.provider} notice={notice} showCategory={showCategories} />)}
@@ -743,7 +768,7 @@ function OfferCard({
         <b>{offer.provider_name}</b>
         {isBest && <span className="best-label">{isAvailable ? 'Cea mai bună ofertă disponibilă' : 'Cel mai bun curs · indisponibil acum'}</span>}
       </div>
-      <span className={`offer-availability ${!isAvailable ? 'unavailable' : offer.stale ? 'stale' : 'fresh'}`}>{status}<small>{isAvailable ? relativeTime(offer.fetched_at) : 'verifică programul'}</small></span>
+      <span className={`offer-availability ${!isAvailable ? 'unavailable' : offer.stale ? 'stale' : 'fresh'}`}>{status}<small>{isAvailable ? collectedAt(offer.fetched_at) : 'verifică programul'}</small></span>
     </div>
     <div className="offer-card-results">
       <div>

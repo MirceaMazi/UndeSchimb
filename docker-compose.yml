@@ -29,10 +29,12 @@ services:
 
   web:
     build: ./frontend
+    environment:
+      API_URL: http://api:8080/api/v1
     depends_on:
       - api
     ports:
-      - "5173:80"
+      - "5173:5173"
 
 volumes:
   postgres_data:
